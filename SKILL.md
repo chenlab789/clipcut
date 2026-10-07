@@ -98,6 +98,12 @@ description: ตัดต่อคลิป ChenLab อัตโนมัติ�
 - เอฟเฟกต์ขึ้นตอนพูดคำสั่งจบ · "ตรงนี้" + ชี้ → `fingertip()` MediaPipe HandLandmarker (`~/.clipcut/models/hand_landmarker.task` โหลดเอง) ไม่เจอท่าชี้ = รูปกลางบน / ซูมหน้าคนพูด
 - item มี `cmd` ชนะ declutter · place_gifs เว้น ±2 วิรอบคำสั่ง · `E.commands` = ป้ายชมพูบนไม้บรรทัด editor (แดง = ทำไม่ได้) คลิก = ไปจุดนั้น+เลือกของ · `gaps._shift` เลื่อนป้ายด้วย
 
+## สไตล์ซับ + มีมไม่มีกรอบ (2026-10-07)
+- ฟอนต์ซับอยู่ที่ `ccfx.SUB_FONTS` ที่เดียว (ไฟล์, winAscent+winDescent, winDescent, ตัวหนา?, ลักษณะ) → พรีวิว (`/api/assets` sub_fonts) / libass Bold flag / AI pass1 / แผงสไตล์ · เพิ่มฟอนต์ = ใส่ไฟล์ตัวหนาใน fonts/ + วัด OS/2 ด้วย fontTools · ไฟล์ตัวบาง (Itim) ต้อง bold=False ไม่งั้น libass ทำหนาปลอม ≠ พรีวิว · FontFace ลงทะเบียนตาม weight จริง
+- editor แท็บ "ซับ" = สไตล์ทั้งคลิป (ฟอนต์/ขนาด/ขอบ/เงา/สีคนพูด/สีคำเด่น/ตำแหน่ง) · `E.style_ai` = ของเดิมที่ AI เลือก (ปุ่มคืนค่า) · "ใช้เป็นค่าเริ่มต้น" → `~/.clipcut/style_default.json` (STYLE_KEYS) autopilot ทับที่ AI เลือก · มือถือ /m มีส่วน "สไตล์ซับ" (ฟอนต์/ขนาด/ขอบ/ตำแหน่ง)
+- มีมแปะทับ/ตัดเข้า: ค่าเริ่มต้นไม่มีกรอบ = มุมมน 5.5% + เงา (`render_edit.round_shadow` = `roundShadow` ใน app.js) · `frame: "white"` = กรอบขาวเดิม (เลือกใน inspector) · รูปจริงจากคำสั่งเสียง `photos.stick` = มุมมน + เงา png โปร่งใส
+- iPhone Safari: จอพรีวิวฝังใน /m ใช้ `#cv` absolute + object-fit contain (max-height:100% ใน flex คิดไม่ออก → ภาพล้น ปุ่มเล่นหลุด)
+
 ## ถังขยะ + หน้ารอตัด + แจ้งเตือน (2026-10-07)
 - **ถังขยะในแอป**: ลบคลิป/โปรเจกต์ = ซ่อน (คลิป: `trashed` ใน library.json · โปรเจกต์: `~/.clipcut/trash.json`) ไฟล์ไม่ขยับ · แถบ "เลิกทำ" 5 วิ · ปุ่มถังขยะบนหัวหน้าแรก กู้คืน/ลบถาวร/ล้างถัง · ครบ 30 วันลบเอง (ตอนเปิด server + เปิดถัง) · ลบถาวร = `library.recycle()` ส่งไฟล์/โฟลเดอร์งานไปถังขยะ Windows (ห้ามลบตรง) · ลบได้เฉพาะของที่อยู่ในถังแล้ว + โฟลเดอร์ใต้ projects_root เท่านั้น
 - **หน้ารอตัด**: autopilot พิมพ์ `STEPS [..]` (ขั้นตอนตามตัวเลือกที่เปิด) + `NOTE {k:..}` (talk/title/cmds/cut/photos/gifs/count + `doing` = กำลังทำอะไร) → server เก็บใน `job.notes` → หน้าแรกโชว์การ์ด "ที่ได้แล้ว" (รูป/GIF ผ่าน `/api/jobimg`) · เวลาเหลือ = 60 + k×ความยาวคลิป (k มัธยฐานจาก `~/.clipcut/jobstats.json`) ผสมความเร็วจริงเมื่อเกิน 15% · log ดิบซ่อนใต้ "รายละเอียด"

@@ -26,6 +26,20 @@ VOICE_LUFS = -16.0   # render ยกเสียงพูดมาที่ร�
 MIX_DEFAULT = {"sfx": 0.8}
 MUSIC_DEFAULT = {"vol": 0.35, "duck": True}
 FONTS = os.path.join(SKILL, "fonts")
+# ฟอนต์ซับ: family → (ไฟล์, winAscent+winDescent, winDescent, ตัวหนา?, ลักษณะ) · upm = 1000 ทุกตัว (วัดจาก OS/2)
+# libass: Fontsize = winAscent+winDescent → em = 1000/ผลรวม · ไฟล์ตัวบาง (Itim) ห้ามสั่ง Bold ไม่งั้น libass ทำหนาปลอม ≠ พรีวิว
+SUB_FONTS = {
+    "Mali": ("Mali-Bold.ttf", 2122, 599, True, "กลมมน น่ารัก"),
+    "Kanit": ("Kanit-Bold.ttf", 1580, 400, True, "หนา ชัด สายเทค"),
+    "Prompt": ("Prompt-Bold.ttf", 1512, 422, True, "โมเดิร์น อ่านง่าย"),
+    "Mitr": ("Mitr-Bold.ttf", 1570, 420, True, "หัวกลม หนาแน่น"),
+    "Chakra Petch": ("ChakraPetch-Bold.ttf", 1814, 566, True, "เหลี่ยม สายเกม"),
+    "Bai Jamjuree": ("BaiJamjuree-Bold.ttf", 1786, 561, True, "เรียบ ทันสมัย"),
+    "Itim": ("Itim-Regular.ttf", 1200, 250, False, "ลายมือ เป็นกันเอง"),
+    "Charm": ("Charm-Bold.ttf", 2353, 714, True, "ลายมือพู่กัน"),
+}
+STYLE_DEFAULT_FILE = os.path.join(os.path.expanduser("~"), ".clipcut", "style_default.json")
+STYLE_KEYS = ("font", "size", "outline", "outline_w", "shadow", "shadow_color", "margin_v")  # ค่าที่ "ใช้เป็นค่าเริ่มต้น" จำไว้
 TRACKS = ["sub", "broll", "gif", "emoji", "sfx", "fx"]
 FX_TYPES = ["punch", "zoomin", "zoomout", "focus", "shake", "flash"]
 FX_DEFAULT = {"punch": 1.18, "zoomin": 1.25, "zoomout": 1.25, "focus": 1.6, "shake": 18, "flash": 0.7}

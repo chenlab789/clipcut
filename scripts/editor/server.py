@@ -501,7 +501,10 @@ def list_assets():
             "voice_lufs_target": ccfx.VOICE_LUFS, "mix_default": ccfx.MIX_DEFAULT,
             "music_default": ccfx.MUSIC_DEFAULT, "emoji": ccfx.EMOJI_PALETTE, "fx": ccfx.FX_TYPES,
             "fx_default": ccfx.FX_DEFAULT,
-            "fonts": sorted(f for f in os.listdir(ccfx.FONTS) if f.endswith(".ttf"))}
+            "fonts": sorted(f for f in os.listdir(ccfx.FONTS) if f.endswith(".ttf")),
+            "sub_fonts": [{"name": k, "file": v[0], "em": 1000 / v[1], "desc_k": v[2] / v[1], "bold": v[3], "desc": v[4]}
+                          for k, v in ccfx.SUB_FONTS.items() if os.path.exists(os.path.join(ccfx.FONTS, v[0]))],
+            "style_default": _jload(ccfx.STYLE_DEFAULT_FILE) or None}
 
 
 def run_render(opts):
@@ -909,6 +912,13 @@ class H(BaseHTTPRequestHandler):
             if job.get("edit") and os.path.normcase(job["edit"]) == os.path.normcase(body["edit"]) and not job.get("seen"):
                 job["seen"] = True
                 broadcast("job", dict(job, now=time.time()))
+            return self.send_json({"ok": True})
+        if path == "/api/style/default":  # "ใช้เป็นค่าเริ่มต้น" — งานถัดไปใช้สไตล์ซับนี้ · style=null = เลิกใช้ ให้ AI เลือกเอง
+            st = body.get("style")
+            if st:
+                _jsave(ccfx.STYLE_DEFAULT_FILE, {k: st[k] for k in ccfx.STYLE_KEYS if k in st})
+            elif os.path.exists(ccfx.STYLE_DEFAULT_FILE):
+                os.remove(ccfx.STYLE_DEFAULT_FILE)
             return self.send_json({"ok": True})
         if path == "/api/push/sub":
             sub = body.get("sub") or {}

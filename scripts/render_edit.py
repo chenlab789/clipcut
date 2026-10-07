@@ -24,7 +24,17 @@ FF = cc.FF
 FPS = 30
 
 
-CAP_FONT = {"Mali": ("Mali-Bold.ttf", 1000 / 2122), "Kanit": ("Kanit-Bold.ttf", 1000 / 1580), "Itim": ("Itim-Regular.ttf", 1000 / 1200)}
+CAP_FONT = {k: (v[0], 1000 / v[1]) for k, v in cc.ccfx.SUB_FONTS.items()}
+
+
+def round_shadow(bw, bh):
+    """มีมแบบไม่มีกรอบ (ค่าเริ่มต้น): มุมมน + เงาจางใต้ภาพ — ต้องตรงกับ drawGif ใน app.js"""
+    R, m = max(6, int(bw * 0.055)), max(8, int(bw * 0.06))
+    return (f"format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
+            f"a='if(gt(hypot(max(0,abs(X-W/2)-(W/2-{R})),max(0,abs(Y-H/2)-(H/2-{R}))),{R}),0,255)',"
+            f"pad=iw+{m * 2}:ih+{m * 2}:{m}:{m}:color=black@0,split[RS1][RS2];"
+            f"[RS2]colorchannelmixer=rr=0:gg=0:bb=0:aa=0.45,boxblur=luma_radius={m // 2}:luma_power=1:alpha_radius={m // 2}:alpha_power=2[RS3];"
+            f"[RS3][RS1]overlay=0:-{m // 3}:format=rgb,format=rgba")
 
 
 def fx_exprs(fx, T, k):
@@ -187,9 +197,13 @@ def build(E, proj, aspect, preview, tmp):
         inputs += ["-stream_loop", "-1", "-i", gif_lib.path(it["gif"], GL)]
         bw = int(it.get("w", 0.55) * w) // 2 * 2
         bd = max(4, int(bw * 0.035))
-        rot = it.get("rot", -3)
-        fc.append(f"[{n_in}:v]trim=duration={d:.3f},setpts=PTS-STARTPTS,fps={FPS},scale={bw}:-2,"
-                  f"pad=iw+{bd * 2}:ih+{bd * 2}:{bd}:{bd}:color=#fcfaf4,format=rgba,"
+        white = it.get("frame") == "white"  # กรอบขาวแบบสติกเกอร์ = เลือกเองใน editor · ค่าเริ่มต้นไม่มีกรอบ
+        rot = it.get("rot", -3 if white else 0)
+        g = GL[it["gif"]]
+        bh = max(2, round(bw * g.get("h", 9) / max(1, g.get("w", 16)) / 2) * 2)
+        look = (f"scale={bw}:-2,pad=iw+{bd * 2}:ih+{bd * 2}:{bd}:{bd}:color=#fcfaf4,format=rgba" if white
+                else f"scale={bw}:{bh}," + round_shadow(bw, bh).replace("RS", f"rs{i}_"))
+        fc.append(f"[{n_in}:v]trim=duration={d:.3f},setpts=PTS-STARTPTS,fps={FPS},{look},"
                   f"rotate={rot}*PI/180:c=none:ow=rotw({rot}*PI/180):oh=roth({rot}*PI/180),"
                   f"fade=t=in:st=0:d=0.12:alpha=1,fade=t=out:st={max(0, d - 0.12):.3f}:d=0.12:alpha=1,"
                   f"setpts=PTS-STARTPTS+{s:.3f}/TB[g{i}];"
@@ -215,10 +229,15 @@ def build(E, proj, aspect, preview, tmp):
         inputs += ["-stream_loop", "-1", "-i", gif_lib.path(it["gif"], GL)]
         fw = int(w * 0.92) // 2 * 2
         bd = max(4, int(w * 0.012))
+        g = GL[it["gif"]]
+        cw = min(fw, int(g.get("w", 16) * h * 0.62 / max(1, g.get("h", 9)))) // 2 * 2
+        ch = max(2, round(cw * g.get("h", 9) / max(1, g.get("w", 16)) / 2) * 2)
+        look = (f"scale='min({fw},iw*{h * 0.62:.0f}/ih)':-2,pad=iw+{bd * 2}:ih+{bd * 2}:{bd}:{bd}:color=#fcfaf4"
+                if it.get("frame") == "white" else f"scale={cw}:{ch}," + round_shadow(cw, ch).replace("RS", f"rc{i}_"))
         fc.append(f"[{n_in}:v]trim=duration={d:.3f},setpts=PTS-STARTPTS,fps={FPS},split=2[cb{i}][cf{i}];"
                   f"[cb{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur={int(30 * k)}:2,"
                   f"eq=brightness=-0.18,setsar=1[cbb{i}];"
-                  f"[cf{i}]scale='min({fw},iw*{h * 0.62:.0f}/ih)':-2,pad=iw+{bd * 2}:ih+{bd * 2}:{bd}:{bd}:color=#fcfaf4[cff{i}];"
+                  f"[cf{i}]{look}[cff{i}];"
                   f"[cbb{i}][cff{i}]overlay=(W-w)/2:(H-h)/2,setpts=PTS-STARTPTS+{s:.3f}/TB[cg{i}];"
                   f"[{cur}][cg{i}]overlay=0:0:eof_action=pass:enable='between(t,{s:.3f},{e - 0.001:.3f})'[vc{i}]")
         cur = f"vc{i}"; n_in += 1

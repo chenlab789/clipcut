@@ -1,4 +1,4 @@
-# clipcut — v1.3
+# clipcut — v1.4
 
 Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 
@@ -17,6 +17,7 @@ Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 - **Demo-aware dead-air cut**: silent stretches where something is being shown (typing, unboxing) are detected from motion + AI vision and kept, sped up (×2–4 with a badge) or jump-cut instead of removed.
 - **Tray icon + start at login** (Windows), lean `claude -p` calls (~5k tokens overhead instead of ~30k) with per-job usage logged.
 - **Spoken edit requests**: just say it while filming ("เอารูปกุ้งขึ้นตรงนี้ให้หน่อย", "ซูมเข้านี่ให้หน่อย", "ใส่เสียงตูมตรงนี้") — the AI spots them from context, fetches a real photo (Openverse / Wikimedia, AI-picked) or zooms / adds the sound where you finish speaking. Zoom knows *what* to zoom ("ซูมเข้าขวด" — AI vision boxes the object and the camera centres it) and *when* ("ตอนกินน้ำซูมหน้ากู" fires at the actual moment, which is kept out of the dead-air cut); pointing is located with MediaPipe hand landmarks.
+- **Subtitle style panel**: pick from 8 Thai fonts and adjust size, outline, shadow, colours and position for the whole clip (desktop editor and phone); save it as the default for future cuts. Memes and spoken-request photos are borderless with rounded corners and a soft shadow (white sticker frame still selectable per meme).
 - **Trash, live progress, notifications**: deletes go to an in-app trash (undo, restore, auto-purge after 30 days, permanent delete goes to the OS recycle bin); the cutting screen shows each step, an ETA and results as they arrive (title, spoken commands, cut length, photos, GIFs); leave the page and follow a small status pill, or get a push notification on your phone when cutting / rendering finishes.
 - **Clip library**: upload raw clips now, cut later — pick one or several from the library and cut as many times as you like (originals untouched, transcript cached). Clips and projects are auto-titled by AI from frames / transcript so they're easy to find; downloads use the title as filename.
 - **Mobile**: optional access from your own phone via `tailscale serve` (tailnet only) behind a PIN, with a compact editor at `/m`.
@@ -30,7 +31,7 @@ Requires: Python 3, ffmpeg 8.x, `pip install requests pythainlp faster-whisper p
 Usage: `/clipcut <video>` in Claude Code — see [SKILL.md](SKILL.md).
 
 ## Fonts
-`fonts/` contains Mali, Kanit, Itim from Google Fonts — SIL Open Font License 1.1.
+`fonts/` contains Mali, Kanit, Itim, Prompt, Mitr, Chakra Petch, Bai Jamjuree, Charm from Google Fonts — SIL Open Font License 1.1.
 
 ## Sound effects
 `assets/sfx/` — synthesized in `scripts/build_sfx.py` (whoosh, boom, riser, ding, pop, boing, tada, buzzer, record_scratch, shutter) plus a curated set from [Kenney](https://kenney.nl) Impact / Interface / Digital Audio packs — CC0 1.0.

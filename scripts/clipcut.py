@@ -373,7 +373,7 @@ def build_ass(chunks, style, w, h, out):
         sline.append(
             f"Style: {name},{style['font']},{size},{ass_col(col)},{ass_col(col)},"
             f"{ass_col(style['outline'])},{ass_col(style['shadow_color'], 0x70)},"
-            f"1,0,0,0,100,100,0,0,1,{ow},{sh},2,60,60,{mv},1")  # Spacing=0 เสมอ — ≠0 ทำวรรณยุกต์หลุด
+            f"{1 if ccfx.SUB_FONTS.get(style['font'], (0, 0, 0, True))[3] else 0},0,0,0,100,100,0,0,1,{ow},{sh},2,60,60,{mv},1")  # Spacing=0 เสมอ — ≠0 ทำวรรณยุกต์หลุด
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {w}

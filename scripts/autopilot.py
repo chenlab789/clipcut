@@ -164,6 +164,8 @@ def pass1(segs, sheet, opts):
     lines = "\n".join(f"{i}|{s['start']:.1f}|{s.get('speaker') or '-'}|{s['text']}" for i, s in enumerate(segs))
     speakers = sorted({s.get("speaker") for s in segs if s.get("speaker")})
     musics = "\n".join(f"- {m['id']}: {m['title']} — {m['mood']}" for m in ccfx.music_list())
+    fonts = "|".join(ccfx.SUB_FONTS)
+    font_desc = ", ".join(f"{k} = {v[4]}" for k, v in ccfx.SUB_FONTS.items())
     prompt = f"""คลิปของ ChenLab (เฉิน ผู้ชาย พูดภาษาไทยกันเองแบบกู/มึง) ถอดเสียงอัตโนมัติมา ช่วยเตรียมตัดต่อ
 1) Read ภาพนี้ก่อน (ภาพนิ่งจากทั้งคลิป 8 ช่อง เรียงตามเวลา): {sheet}
 2) บท (index|วินาที|คนพูด|ข้อความ):
@@ -173,7 +175,7 @@ def pass1(segs, sheet, opts):
 {{"title": "<ชื่อคลิปภาษาไทย ≤30 ตัว ตามเนื้อหา>",
  "fixes": [{{"i": <index>, "text": "<ข้อความที่แก้>"}}],
  "chen": "<speaker id ของเฉิน หรือ null>",
- "style": {{"font": "Mali|Kanit|Itim", "outline": "#hex", "shadow_color": "#hex", "speakers": {{"<speaker id>": "#hex"}}, "highlights": {{"<คำเด่น>": "#hex"}}}},
+ "style": {{"font": "{fonts}", "outline": "#hex", "shadow_color": "#hex", "speakers": {{"<speaker id>": "#hex"}}, "highlights": {{"<คำเด่น>": "#hex"}}}},
  "music": "<id เพลง>"}}
 
 กติกา:
@@ -181,7 +183,7 @@ def pass1(segs, sheet, opts):
 - fixes: แก้เฉพาะคำที่ถอดเพี้ยนชัดๆ จากบริบท โดยเฉพาะชื่อแบรนด์/แอป/ศัพท์อังกฤษ (เช่น "Cort Code"→"Claude Code") ห้ามแก้สำนวนพูด ห้ามเกลาคำหยาบ ไม่แน่ใจ = ไม่แก้
   คำที่แก้ต้องออกเสียงใกล้ของเดิม (ถอดเพี้ยน) เท่านั้น — ห้ามเปลี่ยนเป็นคำอื่นตามที่เห็นในภาพ (เคยแก้ "ขึ้นรูป…ส้ม" เป็น "ซูมรูป…ขวด" = เฉินไม่ได้พูดแบบนั้น)
 - speakers ที่พบ: {speakers or "ไม่มี (คนเดียว)"} — เฉิน = ฟ้าอ่อน #9AD8FF · คนอื่นสีอ่อนที่ต่างชัด (#FFE066, #FF9AC8) · คนเดียว = {{}}
-- font: เทค/จริงจัง = Kanit, ชิล/น่ารัก = Mali, สบายๆ = Itim · outline/shadow_color = สีเข้มโทนเดียวกับคลิป (ดำได้)
+- font: เลือกตามอารมณ์คลิป ({font_desc}) — ไม่แน่ใจ: เทค = Kanit, ชิล = Mali · outline/shadow_color = สีเข้มโทนเดียวกับคลิป (ดำได้)
 - highlights: 3-8 คำสำคัญที่พูดบ่อย (ชื่อของ/แอป/คำเด่น) สีตัดกับคลิป ห้ามซ้ำสีคนพูด
 - music: เลือก 1 เพลงที่เข้ากับอารมณ์ "{VIBES[opts['vibe']]}":
 {musics}"""
@@ -428,8 +430,13 @@ def main():
     for k in ("font", "outline", "shadow_color", "speakers", "highlights"):
         if st.get(k):
             style[k] = st[k]
-    if style["font"] not in ("Mali", "Kanit", "Itim"):
+    if style["font"] not in ccfx.SUB_FONTS:
         style["font"] = "Mali"
+    try:  # เฉินกด "ใช้เป็นค่าเริ่มต้น" ในแผงสไตล์ซับ → ทับที่ AI เลือก (สีคนพูด/คำเด่นยังให้ AI เลือกตามคลิป)
+        mine = json.load(open(ccfx.STYLE_DEFAULT_FILE, encoding="utf-8"))
+        style.update({k: v for k, v in mine.items() if k in ccfx.STYLE_KEYS and (k != "font" or v in ccfx.SUB_FONTS)})
+    except (OSError, ValueError):
+        pass
     json.dump(style, open(os.path.join(outdir, "style.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"  แก้คำ {nfix} จุด · ฟอนต์ {style['font']} · เพลง {p1.get('music')}", flush=True)
     prog(30)

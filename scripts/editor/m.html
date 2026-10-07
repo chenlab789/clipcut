@@ -54,6 +54,14 @@
   .dl a { background: var(--panel); border: 1px solid var(--line); color: var(--text); }
   .row.sel { border-color: var(--accent); }
   .more { width: 100%; padding: 10px; border-radius: 10px; margin-top: 4px; }
+  /* สไตล์ซับ: ฟอนต์เลื่อนแนวนอน + ขนาด/ขอบ/ตำแหน่ง */
+  .fonts { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .fonts button { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: 12px; text-align: left; }
+  .fonts b { font-size: 21px; line-height: 1.5; } .fonts span { font-size: 11px; color: var(--muted); }
+  .fonts button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+  .srow { display: grid; grid-template-columns: 64px 1fr 40px; gap: 10px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .srow input { width: 100%; accent-color: var(--accent); } .srow output { text-align: right; font-variant-numeric: tabular-nums; }
+  .pchips { display: flex; gap: 6px; margin-top: 10px; } .pchips button { flex: 1; padding: 8px 0; border-radius: 10px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -71,6 +79,7 @@
 
   <h3>คลิปที่เรนเดอร์แล้ว <span id="nOut"></span></h3><div id="outs"></div>
 
+  <h3>สไตล์ซับ — ทั้งคลิป</h3><div id="style"></div>
   <h3>GIF / meme <span id="nGif"></span></h3><div id="gifs"></div>
   <h3>ภาพพิกเซล <span id="nPix"></span></h3><div id="pix"></div>
   <h3>ซับ <span id="nSub"></span> — แตะแก้คำได้</h3><div id="subs"></div>
@@ -139,6 +148,28 @@ function paint() {
   $("#subs").innerHTML = subs.slice(0, subsShown).map((it) => `<div class="sub"><span>${fmt(it.start)}</span><textarea rows="1" data-sub="${it.id}">${esc(it.text)}</textarea></div>`).join("")
     + (subs.length > subsShown ? `<button class="more" id="more">แสดงซับอีก ${subs.length - subsShown}</button>` : "");
   const m = $("#more"); if (m) m.onclick = () => { subsShown += 60; paint(); };
+  paintStyle();
+}
+/* ---------- สไตล์ซับ (ชุดเดียวกับแผงใน editor · พรีวิวสดด้านบนเปลี่ยนตามทันทีที่บันทึก) ---------- */
+let FONTS = [];
+async function loadFonts() {
+  const a = await fetch("/api/assets").then((x) => x.json()).catch(() => ({}));
+  FONTS = a.sub_fonts || [];
+  for (const f of FONTS) { try { const ff = new FontFace(f.name, `url(/fonts/${f.file})`, { weight: f.bold ? "700" : "400" }); await ff.load(); document.fonts.add(ff); } catch (e) { /* */ } }
+  paintStyle();
+}
+function paintStyle() {
+  const st = E && E.style; if (!st || !FONTS.length) return;
+  const row = (k, label, min, max, step) => `<div class="srow"><span>${label}</span><input type="range" data-st="${k}" min="${min}" max="${max}" step="${step}" value="${st[k]}"><output>${st[k]}</output></div>`;
+  $("#style").innerHTML = `<div class="fonts">${FONTS.map((f) => `<button class="${f.name === st.font ? "on" : ""}" data-font="${esc(f.name)}"><b style="font-family:'${esc(f.name)}';font-weight:${f.bold ? 700 : 400}">สวัสดี</b><span>${esc(f.name)}</span></button>`).join("")}</div>
+    ${row("size", "ขนาด", 60, 220, 2)}${row("outline_w", "ขอบหนา", 0, 26, 1)}
+    <div class="pchips">${[["ต่ำ", 200], ["ปกติ", 330], ["กลางจอ", 760]].map(([a, v]) => `<button class="${Math.abs(st.margin_v - v) < 40 ? "primary" : ""}" data-mv="${v}">${a}</button>`).join("")}</div>`;
+  $("#style").querySelectorAll("[data-font]").forEach((b) => (b.onclick = () => saveWith((E) => (E.style.font = b.dataset.font), "เปลี่ยนฟอนต์แล้ว")));
+  $("#style").querySelectorAll("[data-st]").forEach((el) => {
+    el.oninput = () => (el.nextElementSibling.textContent = el.value);
+    el.onchange = () => saveWith((E) => (E.style[el.dataset.st] = +el.value), "บันทึกแล้ว");
+  });
+  $("#style").querySelectorAll("[data-mv]").forEach((b) => (b.onclick = () => saveWith((E) => (E.style.margin_v = +b.dataset.mv), "ย้ายซับแล้ว")));
 }
 
 /* ---------- แก้ → บันทึกทั้งไฟล์ (ชนกับคอม = โหลดของล่าสุดแล้วแก้ซ้ำ) ---------- */
@@ -245,7 +276,7 @@ $("#bBell").onclick = async () => {
   paintBell();
 };
 paintBell();
-load().then(() => setMode("live"));
+load().then(() => { setMode("live"); loadFonts(); });
 </script>
 </body>
 </html>

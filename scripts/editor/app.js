@@ -26,9 +26,10 @@ const FX_INFO = {
   flash: ["แฟลชขาว", "ตัดฉาก/พีค"],
 };
 const FX_RANGE = { punch: [1.02, 1.6, 0.01], zoomin: [1.02, 1.8, 0.01], zoomout: [1.02, 1.8, 0.01], focus: [1.05, 2.5, 0.01], shake: [2, 60, 1], flash: [0.1, 1, 0.05] };
-const FONT_FILES = { Mali: "Mali-Bold.ttf", Kanit: "Kanit-Bold.ttf", Itim: "Itim-Regular.ttf" };
+// ฟอนต์ซับ — ค่าจริงมาจาก server (ccfx.SUB_FONTS) ตอนโหลด · ค่านี้แค่สำรอง
+let FONT_FILES = { Mali: "Mali-Bold.ttf", Kanit: "Kanit-Bold.ttf", Itim: "Itim-Regular.ttf" }, FONT_BOLD = { Mali: true, Kanit: true, Itim: false };
 // libass: Fontsize = winAscent+winDescent → [em/size, descent/size] จาก OS/2 ของแต่ละฟอนต์
-const FONT_METRIC = { Mali: [1000 / 2122, 599 / 2122], Kanit: [1000 / 1580, 400 / 1580], Itim: [1000 / 1200, 250 / 1200] };
+let FONT_METRIC = { Mali: [1000 / 2122, 599 / 2122], Kanit: [1000 / 1580, 400 / 1580], Itim: [1000 / 1200, 250 / 1200] };
 const CLIENT = Math.random().toString(36).slice(2);
 
 let E = null;            // edit.json ปัจจุบัน
@@ -115,16 +116,25 @@ function drawGif(it, t) { // = render_edit 4b (แปะทับ) / 5b (ตั�
     ctx.imageSmoothingQuality = "high"; ctx.drawImage(gs, 0, 0, W, H);
     ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.fillRect(0, 0, W, H);
     const fw = Math.min(W * 0.92, v.videoWidth * H * 0.62 / v.videoHeight), fh = fw * v.videoHeight / v.videoWidth, bd = Math.max(4, W * 0.012);
-    ctx.fillStyle = SB; ctx.fillRect((W - fw) / 2 - bd, (H - fh) / 2 - bd, fw + bd * 2, fh + bd * 2);
-    ctx.drawImage(v, (W - fw) / 2, (H - fh) / 2, fw, fh);
+    if (it.frame === "white") { ctx.fillStyle = SB; ctx.fillRect((W - fw) / 2 - bd, (H - fh) / 2 - bd, fw + bd * 2, fh + bd * 2); ctx.drawImage(v, (W - fw) / 2, (H - fh) / 2, fw, fh); }
+    else roundShadow(v, (W - fw) / 2, (H - fh) / 2, fw, fh);
     return drawCaption(it);
   }
   const b = gifBox(it), bd = Math.max(4, b.w * 0.035), fd = 0.12;
   ctx.save(); ctx.globalAlpha = clamp(Math.min((t - it.start) / fd, (it.end - t) / fd), 0, 1);
-  ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.rotate((it.rot ?? -3) * Math.PI / 180);
-  ctx.fillStyle = SB; ctx.fillRect(-b.w / 2 - bd, -b.h / 2 - bd, b.w + bd * 2, b.h + bd * 2);
-  ctx.drawImage(v, -b.w / 2, -b.h / 2, b.w, b.h); ctx.restore();
+  const white = it.frame === "white";
+  ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.rotate((it.rot ?? (white ? -3 : 0)) * Math.PI / 180);
+  if (white) { ctx.fillStyle = SB; ctx.fillRect(-b.w / 2 - bd, -b.h / 2 - bd, b.w + bd * 2, b.h + bd * 2); ctx.drawImage(v, -b.w / 2, -b.h / 2, b.w, b.h); }
+  else roundShadow(v, -b.w / 2, -b.h / 2, b.w, b.h);
+  ctx.restore();
   drawCaption(it);
+}
+// มุมมน + เงาจางใต้ภาพ (= round_shadow ใน render_edit: รัศมี 5.5% กว้าง · เงาดำ 45% เบลอ 3% เลื่อนลง)
+function roundShadow(v, x, y, w, h) {
+  const r = Math.max(6, w * 0.055), m = Math.max(8, w * 0.06);
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = m; ctx.shadowOffsetY = m / 3;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.clip(); ctx.drawImage(v, x, y, w, h); ctx.restore();
 }
 function paintTitle() {
   const nm = (E.title || ($("#projName").dataset.file || "")).replace(".edit.json", "");
@@ -163,9 +173,14 @@ async function load() {
 let proxy = null;
 const previewVideo = () => proxy || E.video; // editor ใช้ไฟล์เบา · เรนเดอร์ใช้ไฟล์เต็ม
 async function loadFont() {
-  for (const [fam, file] of Object.entries(FONT_FILES)) {
-    try { const f = new FontFace(fam, `url(/fonts/${file})`); await f.load(); document.fonts.add(f); } catch (e) { /* ไม่มีไฟล์ก็ข้าม */ }
+  if (assets.sub_fonts && assets.sub_fonts.length) {
+    FONT_FILES = {}; FONT_METRIC = {}; FONT_BOLD = {};
+    for (const f of assets.sub_fonts) { FONT_FILES[f.name] = f.file; FONT_METRIC[f.name] = [f.em, f.desc_k]; FONT_BOLD[f.name] = f.bold; }
   }
+  // ลงทะเบียนตามน้ำหนักจริงของไฟล์ — ขอ bold กับไฟล์ที่หนาอยู่แล้ว = เบราว์เซอร์ไม่ทำหนาปลอมซ้ำ (เรนเดอร์ libass ก็ไม่ทำ)
+  await Promise.all(Object.entries(FONT_FILES).map(async ([fam, file]) => {
+    try { const f = new FontFace(fam, `url(/fonts/${file})`, { weight: FONT_BOLD[fam] ? "700" : "400" }); await f.load(); document.fonts.add(f); } catch (e) { /* ไม่มีไฟล์ก็ข้าม */ }
+  }));
 }
 function setSave(s) {
   const el = $("#saveState"); el.className = "status " + (s === "ok" ? "ok" : "dirty");
@@ -381,7 +396,7 @@ function drawSub(it, t) {
   let sc = lt < 120 ? 0.7 + 0.42 * lt / 120 : lt < 220 ? 1.12 - 0.12 * (lt - 120) / 100 : 1;
   const dur = (it.end - it.start) * 1000;
   const a = Math.min(1, lt / 80, (dur - lt) / 60);
-  ctx.save(); ctx.font = `${st.font === "Itim" ? "" : "bold "}${size}px "${st.font}"`;
+  ctx.save(); ctx.font = `${FONT_BOLD[st.font] === false ? "" : "bold "}${size}px "${st.font}"`;
   ctx.textBaseline = "alphabetic"; ctx.lineJoin = "round"; ctx.globalAlpha = clamp(a, 0, 1);
   const runs = subRuns(it.text, base);
   const total = runs.reduce((s, r) => s + ctx.measureText(r[0]).width, 0);
@@ -748,9 +763,10 @@ function renderInspector() {
     h += `<p class="muted" style="margin:0 0 8px">${{ overlay: "แปะทับบนคลิป", cut: "ตัดเข้าเต็มจอ — คลิปหยุดรอช่วงนี้", freeze: "หยุดภาพ + ข้อความ — คลิปหยุดรอช่วงนี้" }[it.mode]}</p>`;
     if (g) h += `<div class="gifCur"><video src="${gifSrc(it.gif)}" autoplay loop muted playsinline></video><span>${esc(g.desc)}<br><small>${esc(GIFS.cats[g.cat] || g.cat)}</small></span></div>`;
     if (it.mode !== "freeze") h += `<div class="row" style="gap:6px;margin:6px 0 10px"><button id="gifPrev">ตัวก่อน</button><button id="gifNext">เปลี่ยนตัว (หมวดเดียวกัน)</button></div>`;
+    if (it.mode !== "freeze") h += field("กรอบ", `<select data-k="frame"><option value="" ${it.frame !== "white" ? "selected" : ""}>ไม่มี (มุมมน + เงา)</option><option value="white" ${it.frame === "white" ? "selected" : ""}>ขาวแบบสติกเกอร์</option></select>`);
     h += field("ข้อความ", `<input data-k="caption" value="${esc(it.caption || "")}" placeholder="คำมุกสั้นๆ (เว้นว่างได้)">`);
     if (it.mode === "overlay") {
-      h += field("กว้าง", slider("w", it.w ?? 0.55, 0.2, 1, 0.01)) + field("เอียง", slider("rot", it.rot ?? -3, -15, 15, 1));
+      h += field("กว้าง", slider("w", it.w ?? 0.55, 0.2, 1, 0.01)) + field("เอียง", slider("rot", it.rot ?? (it.frame === "white" ? -3 : 0), -15, 15, 1));
       h += field("แนวนอน", slider("x", it.x ?? 0.5, 0, 1, 0.01)) + field("แนวตั้ง", slider("y", it.y ?? 0.3, 0, 1, 0.01));
     }
   }
@@ -873,11 +889,65 @@ function renderLib(tab) {
   } else if (tab === "music") {
     renderMusicTab(body);
   } else if (tab === "sub") {
-    body.innerHTML = `<p class="muted">เพิ่มซับใหม่ที่หัวเล่น แล้วพิมพ์ข้อความในช่องแก้ค่า</p><button id="subAdd" class="primary">เพิ่มซับ</button>`;
-    $("#subAdd").onclick = () => add("sub", { text: "ข้อความ", speaker: null });
+    renderStyleTab(body);
   }
 }
 $("#libTabs").addEventListener("click", (e) => e.target.dataset.tab && renderLib(e.target.dataset.tab));
+
+/* ---------- สไตล์ซับ (ทั้งคลิป): ฟอนต์ / ขนาด / ขอบ / เงา / สี / ตำแหน่ง ---------- */
+const OUTLINE_SW = ["#000000", "#1a1a2e", "#3b1d0f", "#0b3d2e", "#ffffff"];
+const TEXT_SW = ["#FFFFFF", "#FFE066", "#9AD8FF", "#FF9AC8", "#B9F18C", "#FFB86B"];
+function renderStyleTab(body) {
+  const st = E.style, vertical = W <= H;
+  const sw = (key, list, cur) => `<div class="swRow">${list.map((c) => `<button class="sw${c.toLowerCase() === String(cur).toLowerCase() ? " on" : ""}" data-sk="${key}" data-v="${c}" style="background:${c}" title="${c}"></button>`).join("")}<input type="color" data-sc="${key}" value="${cur}"></div>`;
+  const spk = Object.keys(st.speakers || {});
+  const roleName = (s) => (E.roles && E.roles[s]) || s;
+  const hl = Object.values(st.highlights || {});
+  body.innerHTML = `<p class="muted" style="margin:0 0 8px">ใช้กับซับทั้งคลิป · เห็นผลบนจอทันที</p>
+    <div class="fontGrid">${Object.keys(FONT_FILES).map((f) => `<button class="fontBtn${f === st.font ? " on" : ""}" data-font="${esc(f)}">
+      <b style="font-family:'${esc(f)}';font-weight:${FONT_BOLD[f] === false ? 400 : 700}">สวัสดีชาวโลก</b><span>${esc(f)} · ${esc((assets.sub_fonts || []).find((x) => x.name === f)?.desc || "")}</span></button>`).join("")}</div>
+    ${field("ขนาด", `<div class="row"><input type="range" data-s="size" min="60" max="220" step="2" value="${st.size}"><span class="val">${st.size}</span></div>`)}
+    ${field("ขอบหนา", `<div class="row"><input type="range" data-s="outline_w" min="0" max="26" step="1" value="${st.outline_w}"><span class="val">${st.outline_w}</span></div>`)}
+    ${field("สีขอบ", sw("outline", OUTLINE_SW, st.outline))}
+    ${field("เงา", `<div class="row"><input type="range" data-s="shadow" min="0" max="16" step="1" value="${st.shadow}"><span class="val">${st.shadow}</span></div>`)}
+    ${spk.length ? spk.map((s) => field(esc(roleName(s)), sw("sp:" + s, TEXT_SW, st.speakers[s]))).join("") : field("สีตัวอักษร", sw("fill", TEXT_SW, st.fill))}
+    ${hl.length ? field("คำเด่น", sw("hl", ["#FFD700", "#FF6B6B", "#7CF29A", "#7FD1FF", "#FF9AC8"], hl[0])) : ""}
+    ${field("ตำแหน่ง", `<div class="row"><input type="range" data-s="margin_v" min="${vertical ? 80 : 80}" max="${vertical ? 1100 : 1100}" step="10" value="${st.margin_v}"><span class="val">${st.margin_v}</span></div>`)}
+    <div class="chipRow" style="margin:-2px 0 12px 76px">${[["ต่ำ", 200], ["ปกติ", 330], ["กลางจอ", 760]].map(([a, v]) => `<button data-mv="${v}">${a}</button>`).join("")}</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button id="stDefault" title="งานถัดไปใช้ฟอนต์/ขนาด/ขอบ/ตำแหน่งนี้ ไม่ต้องให้ AI เลือก">ใช้เป็นค่าเริ่มต้นงานถัดไป</button>
+      ${E.style_ai ? '<button id="stReset">คืนค่าที่ AI เลือก</button>' : ""}</div>
+    <p class="muted" id="stDefInfo" style="font-size:11.5px;margin:8px 0 14px">${assets.style_default ? `ตอนนี้งานใหม่ใช้: ${esc(assets.style_default.font)} ขนาด ${assets.style_default.size} · <a id="stDefOff" style="color:var(--accent);cursor:pointer">เลิกใช้ ให้ AI เลือก</a>` : "งานใหม่: AI เลือกฟอนต์ตามอารมณ์คลิป"}</p>
+    <hr style="border:0;border-top:1px solid var(--line);margin:4px 0 12px">
+    <p class="muted" style="margin:0 0 8px">เพิ่มซับใหม่ที่หัวเล่น แล้วพิมพ์ข้อความในช่องแก้ค่า</p><button id="subAdd" class="primary">เพิ่มซับ</button>`;
+  const set = (fn, redraw) => {
+    if (!E.style_ai) E.style_ai = JSON.parse(JSON.stringify(E.style)); // จำของ AI ไว้ "คืนค่า"
+    fn(E.style); touch([], { noInspector: true }); if (redraw) renderLib("sub");
+  };
+  let snap = null; // ลากแถบเลื่อน = ย้อนได้ทีเดียว
+  body.querySelectorAll("[data-font]").forEach((b) => (b.onclick = () => { snapshot(); set((s) => (s.font = b.dataset.font), true); }));
+  body.querySelectorAll("[data-s]").forEach((el) => {
+    el.addEventListener("pointerdown", () => (snap = JSON.stringify(E)));
+    el.oninput = () => {
+      if (snap) { undoStack.push(snap); redoStack = []; snap = null; }
+      el.nextElementSibling.textContent = el.value; set((s) => (s[el.dataset.s] = +el.value));
+    };
+  });
+  const color = (key, v) => set((s) => {
+    if (key === "hl") for (const k of Object.keys(s.highlights || {})) s.highlights[k] = v;
+    else if (key.startsWith("sp:")) s.speakers[key.slice(3)] = v;
+    else s[key] = v;
+  }, true);
+  body.querySelectorAll("[data-sk]").forEach((b) => (b.onclick = () => { snapshot(); color(b.dataset.sk, b.dataset.v); }));
+  body.querySelectorAll("[data-sc]").forEach((el) => { el.onfocus = () => snapshot(); el.onchange = () => color(el.dataset.sc, el.value.toUpperCase()); });
+  body.querySelectorAll("[data-mv]").forEach((b) => (b.onclick = () => { snapshot(); set((s) => (s.margin_v = +b.dataset.mv), true); }));
+  $("#subAdd").onclick = () => add("sub", { text: "ข้อความ", speaker: null });
+  const rs = $("#stReset"); if (rs) rs.onclick = () => { snapshot(); E.style = JSON.parse(JSON.stringify(E.style_ai)); delete E.style_ai; touch([], { noInspector: true }); renderLib("sub"); };
+  $("#stDefault").onclick = async () => {
+    await post("/api/style/default", { style: E.style }); assets.style_default = { ...E.style };
+    toast("งานถัดไปใช้สไตล์ซับนี้"); renderLib("sub");
+  };
+  const off = $("#stDefOff"); if (off) off.onclick = async () => { await post("/api/style/default", { style: null }); assets.style_default = null; toast("งานใหม่ให้ AI เลือกฟอนต์เอง"); renderLib("sub"); };
+}
 
 function renderMusicTab(body) {
   const cur = E.music, mx = E.mix?.sfx ?? assets.mix_default.sfx;

@@ -85,13 +85,19 @@ def sheet(items, out, cell=260):
 
 
 def stick(raw, out, long_side=900):
-    """รูปเต็ม → ย่อ + กรอบขาว (เหมือนรูปแปะ) → png"""
-    from PIL import Image
-    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    """รูปเต็ม → ย่อ + มุมมน + เงาจางใต้ภาพ → png โปร่งใส (เฉินไม่เอากรอบขาว)"""
+    from PIL import Image, ImageDraw, ImageFilter
+    im = Image.open(io.BytesIO(raw)).convert("RGBA")
     im.thumbnail((long_side, long_side))
-    b = max(8, int(max(im.size) * 0.025))
-    S = Image.new("RGB", (im.width + b * 2, im.height + b * 2), "#fcfaf4")
-    S.paste(im, (b, b))
+    R, m = max(8, int(im.width * 0.055)), max(10, int(im.width * 0.06))
+    mask = Image.new("L", im.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, im.width - 1, im.height - 1], R, fill=255)
+    S = Image.new("RGBA", (im.width + m * 2, im.height + m * 2), (0, 0, 0, 0))
+    sh = Image.new("RGBA", S.size, (0, 0, 0, 0))
+    sh.paste((0, 0, 0, 115), (m, m + m // 3), mask)
+    S = Image.alpha_composite(S, sh.filter(ImageFilter.GaussianBlur(m / 2.2)))
+    im.putalpha(mask)
+    S.alpha_composite(im, (m, m))
     S.save(out)
     return out
 
