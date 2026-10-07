@@ -184,8 +184,9 @@ async function save() {
   const sent = new Set(dirty), sentDel = new Set(deleted);
   try {
     const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ edit: E, base_rev: rev, client: CLIENT }) });
+      body: JSON.stringify({ edit: E, base_rev: rev, client: CLIENT, file: $("#projName").dataset.file }) });
     const j = await r.json();
+    if (j.switched) return switched();
     if (j.conflict) { merge(j.edit); rev = j.rev; saving = false; return save(); }
     rev = j.rev; sent.forEach((x) => dirty.delete(x)); sentDel.forEach((x) => deleted.delete(x));
     setSave(dirty.size ? "dirty" : "ok");
@@ -203,7 +204,10 @@ function merge(remote) {
   }
   E = { ...remote, items, scenes };
 }
+// server เปิดงานได้ทีละงาน — อีกเครื่อง (มือถือ/ไอแพด) เปิดงานอื่น = หน้านี้ต้องโหลดใหม่ ห้ามเซฟทับ/รวมของข้ามงาน
+function switched() { saving = true; toast("อีกเครื่องเปิดงานอื่นอยู่ — กำลังโหลดงานนั้น"); setTimeout(() => location.reload(), 1500); }
 function onRemote(d) {
+  if (d.file && d.file !== $("#projName").dataset.file) return switched();
   if (d.by === CLIENT) return;
   if (E && d.edit.video !== E.video) {
     const t = Math.min(vid.currentTime, d.edit.duration);

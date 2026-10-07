@@ -1,4 +1,4 @@
-# clipcut — v1.0
+# clipcut — v1.0.1
 
 Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 

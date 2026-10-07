@@ -30,6 +30,21 @@ def make_icon():
     return ICO
 
 
+def make_app_icons():
+    """ไอคอนตอน "เพิ่มลงหน้าจอโฮม" บนไอโฟน/ไอแพด — สี่เหลี่ยมเต็ม ไม่โปร่งใส (iOS ตัดมุมมนเอง, ส่วนใส = ดำ)"""
+    spr = Image.open(os.path.join(SKILL, "assets", "pixel", "hoodie_cheer.png")).convert("RGBA")
+    out = []
+    for S in (180, 512):
+        bg = Image.new("RGBA", (S, S), (16, 185, 129, 255))
+        k = S * 0.78 / max(spr.size)
+        sp = spr.resize((round(spr.width * k), round(spr.height * k)), Image.NEAREST)
+        bg.alpha_composite(sp, ((S - sp.width) // 2, S - sp.height - round(S * 0.06)))
+        p = os.path.join(HERE, "editor", f"icon-{S}.png")
+        bg.convert("RGB").save(p)
+        out.append(p)
+    return out
+
+
 def desktop():
     """Desktop จริง (OneDrive ย้ายไปได้) — ถาม Windows ตรง ไม่เดา path"""
     r = subprocess.run(["powershell", "-NoProfile", "-Command",
@@ -40,6 +55,7 @@ def desktop():
 
 def main():
     make_icon()
+    make_app_icons()
     pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     if not os.path.exists(pyw):
         pyw = sys.executable

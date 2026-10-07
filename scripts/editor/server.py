@@ -93,7 +93,7 @@ def watcher():
                 continue  # เขียนไม่เสร็จ/JSON พัง — รอรอบหน้า
             state["hash"] = h
             state["rev"] += 1
-            broadcast("edit", {"rev": state["rev"], "edit": data, "by": "file"})
+            broadcast("edit", {"rev": state["rev"], "edit": data, "by": "file", "file": os.path.basename(EDIT)})
 
 
 # ---------- โปรเจกต์ ----------
@@ -168,6 +168,7 @@ def project_info(edit):
         dur, n, title, mode, aspect, video = 0, 0, name, "fx", "9x16", None
     return {"edit": edit, "name": name, "title": title, "mode": mode, "aspect": aspect, "dir": d,
             "mtime": os.path.getmtime(edit), "duration": dur, "fx": n, "outputs": [os.path.join(d, f) for f in outs],
+            "out_mtimes": [os.path.getmtime(os.path.join(d, f)) for f in outs],
             "thumb": bool(video) or os.path.exists(os.path.join(d, "_frames.jpg"))}
 
 
@@ -309,10 +310,21 @@ def auth_token():
     return hmac.new(key.encode(), ("clipcut:" + pin_code()).encode(), "sha256").hexdigest()
 
 
+APP_ICONS = {"/apple-touch-icon.png": "icon-180.png", "/apple-touch-icon-precomposed.png": "icon-180.png",
+             "/icon-180.png": "icon-180.png", "/icon-512.png": "icon-512.png", "/manifest.webmanifest": None}
+MANIFEST = {"name": "ClipCut", "short_name": "ClipCut", "start_url": "/", "display": "standalone",
+            "background_color": "#060606", "theme_color": "#10b981",
+            "icons": [{"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
+                      {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}]}
 pin_fails = []  # เวลาที่ใส่ PIN ผิด (กันเดา: ผิด 8 ครั้งใน 15 นาที = ล็อก)
 
 LOGIN_HTML = """<!doctype html><html lang="th"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>ClipCut</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="ClipCut">
+<meta name="theme-color" content="#10b981">
+
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#060606;color:#e8eceb;font:16px "Segoe UI",system-ui,sans-serif}
 form{width:min(320px,90vw);display:flex;flex-direction:column;gap:14px;text-align:center}
 b{font-size:22px}input{font-size:28px;letter-spacing:10px;text-align:center;padding:12px;border-radius:12px;border:1px solid #2a2f2e;background:#101111;color:#fff}
@@ -340,6 +352,8 @@ class H(BaseHTTPRequestHandler):
 
     def gate(self, path, method):
         """True = ผ่าน · False = ตอบไปแล้ว (หน้า PIN / 401)"""
+        if path in APP_ICONS:  # ไอคอนหน้าจอโฮม — iOS โหลดตอนกด "เพิ่มลงหน้าจอโฮม" อาจไม่ส่ง cookie มา
+            return True
         if path == "/login":
             if method == "POST":
                 n = int(self.headers.get("Content-Length") or 0)
@@ -438,6 +452,15 @@ class H(BaseHTTPRequestHandler):
         path = unquote(url.path)
         if not self.gate(path, "GET"):
             return
+        if path in APP_ICONS:
+            if APP_ICONS[path] is None:
+                b = json.dumps(MANIFEST).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/manifest+json")
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                return self.wfile.write(b)
+            return self.send_file(os.path.join(UI, APP_ICONS[path]), cache=True)
         if path in ("/m", "/m.html"):  # editor แบบย่อสำหรับมือถือ
             return self.send_file(os.path.join(UI, "m.html"))
         if path == "/api/video":  # ดู/โหลดคลิปที่เรนเดอร์บนมือถือ
@@ -528,6 +551,8 @@ class H(BaseHTTPRequestHandler):
         except ValueError:
             return self.send_json({"ok": False, "error": "JSON เสีย"}, 400)
         if path == "/api/edit":
+            if body.get("file") and EDIT and body["file"] != os.path.basename(EDIT):
+                return self.send_json({"ok": False, "switched": True, "file": os.path.basename(EDIT)}, 409)
             if body.get("base_rev") is not None and body["base_rev"] != state["rev"]:
                 # มีคนแก้ไฟล์แทรกระหว่างนั้น → ไม่ทับ ให้หน้าเว็บ merge ก่อน
                 return self.send_json({"ok": False, "conflict": True, "rev": state["rev"],
@@ -540,7 +565,7 @@ class H(BaseHTTPRequestHandler):
             body["edit"] = new
             state["hash"] = file_hash()
             state["rev"] += 1
-            broadcast("edit", {"rev": state["rev"], "edit": body["edit"], "by": body.get("client")})
+            broadcast("edit", {"rev": state["rev"], "edit": body["edit"], "by": body.get("client"), "file": os.path.basename(EDIT)})
             return self.send_json({"ok": True, "rev": state["rev"]})
         if path == "/api/job":
             if job.get("state") == "running":

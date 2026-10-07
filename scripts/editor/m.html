@@ -6,6 +6,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>ClipCut</title>
 <link rel="icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="ClipCut">
+<meta name="theme-color" content="#10b981">
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/app.css">
 <style>
@@ -71,7 +75,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then((r) => r.json());
 function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), 2400); }
-let E = null, rev = 0, name = "", proxy = null, GIFS = { lib: {}, cats: {} }, outs = [], subsShown = 40;
+let editT = 0, E = null, rev = 0, name = "", proxy = null, GIFS = { lib: {}, cats: {} }, outs = [], subsShown = 40;
 
 async function load() {
   const r = await fetch("/api/edit");
@@ -81,17 +85,19 @@ async function load() {
   if (!Object.keys(GIFS.lib).length) GIFS = await fetch("/api/gifs").then((x) => x.json()).catch(() => GIFS);
   const h = await fetch("/api/home").then((x) => x.json());
   const p = h.projects.find((x) => h.current && x.edit.toLowerCase() === h.current.toLowerCase());
-  outs = p ? p.outputs : [];
+  const want = E.mode === "explainer" ? /_explainer_/ : /_(edit|preview)_\d+x\d+\.mp4$/;
+  outs = p ? p.outputs.map((o, i) => ({ path: o, t: p.out_mtimes[i] })).filter((o) => want.test(o.path)) : [];
+  editT = p ? p.mtime : 0;
   paint();
 }
 function paint() {
   $("#ttl").textContent = E.title || name.replace(".edit.json", "");
   // คลิปที่เรนเดอร์ล่าสุด (มีเอฟเฟกต์ครบ) · ยังไม่เคยเรนเดอร์ = คลิปดิบที่ตัดแล้ว
-  const out = outs[outs.length - 1], v = $("#v");
+  const o = outs[outs.length - 1], out = o && o.path, stale = o && o.t < editT - 2, v = $("#v");
   const src = out ? "/api/video?path=" + encodeURIComponent(out) : "/media/" + encodeURIComponent(proxy || E.video);
   if (v.dataset.src !== src) { v.dataset.src = src; v.src = src; }
   $("#vdot").classList.toggle("ok", !!out);
-  $("#vlab").innerHTML = out ? `คลิปที่เรนเดอร์ล่าสุด · <a href="${src}" target="_blank" style="color:var(--accent)">เปิดเพื่อบันทึกลงเครื่อง</a>`
+  $("#vlab").innerHTML = out ? `${stale ? "เรนเดอร์ก่อนแก้ครั้งล่าสุด (กดเรนเดอร์ใหม่)" : "คลิปที่เรนเดอร์ล่าสุด"} · <a href="${src}" target="_blank" style="color:var(--accent)">เปิดเพื่อบันทึกลงเครื่อง</a>`
     : "ยังไม่ได้เรนเดอร์ — นี่คือคลิปที่ตัดแล้ว (ยังไม่มีเอฟเฟกต์)";
   const gifs = E.items.filter((x) => x.track === "gif").sort((a, b) => a.start - b.start);
   $("#nGif").textContent = gifs.length;
@@ -113,8 +119,9 @@ function paint() {
 /* ---------- แก้ → บันทึกทั้งไฟล์ (ชนกับคอม = โหลดของล่าสุดแล้วแก้ซ้ำ) ---------- */
 async function saveWith(fn, msg) {
   fn(E);
-  const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edit: E, base_rev: rev, client: "mobile" }) });
+  const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edit: E, base_rev: rev, client: "mobile", file: name }) });
   const j = await r.json();
+  if (j.switched) { toast("อีกเครื่องเปิดงานอื่นอยู่ — โหลดใหม่"); return setTimeout(() => location.reload(), 1500); }
   if (j.conflict) { E = j.edit; rev = j.rev; fn(E); return saveWith(() => {}, msg); }
   if (j.ok) { rev = j.rev; toast(msg); paint(); } else toast(j.error || "บันทึกไม่ได้");
 }

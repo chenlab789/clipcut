@@ -147,6 +147,12 @@ async function refresh() {
   if (h.job && h.job.state === "running") paintJob(h.job);
   else if (h.staged && !staged) stage(h.staged);
 }
+// สำรองให้ SSE: ผ่าน tailscale serve (มือถือ) event อาจค้างในตัวกลาง → หน้าความคืบหน้าค้างทั้งที่งานเสร็จแล้ว
+setInterval(async () => {
+  if ($("#vJob").classList.contains("hidden")) return;
+  const h = await fetch("/api/home").then((r) => r.json()).catch(() => null);
+  if (h && h.job) paintJob(h.job);
+}, 3000);
 $("#openRoot").onclick = () => post("/api/reveal", { path: root });
 $("#toEditor").onclick = () => (location.href = EDITOR);
 if (MOBILE) {
