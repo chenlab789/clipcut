@@ -224,7 +224,8 @@ def build(E, proj, aspect, preview, tmp):
     # 6. ซับ + คำมุกบน GIF/หยุดภาพ
     subs = [(x["start"], x["end"], x["text"], x.get("speaker")) for x in by("sub") if x["text"].strip()]
     caps = [x for x in by("gif") if (x.get("caption") or "").strip()]
-    if subs or caps:
+    fast = [x for x in E.get("speedups") or [] if x.get("mode", "speed") == "speed"]
+    if subs or caps or fast:
         ass = os.path.join(tmp, "subs.ass")
         st = cc.load_style(None) | E["style"]
         cc.build_ass(subs, st, W, H, ass)
@@ -245,6 +246,11 @@ def build(E, proj, aspect, preview, tmp):
                 lines.append(f"Dialogue: 1,{cc.fmt_t(x['start'])},{cc.fmt_t(x['end'])},Default,,0,0,0,,"
                              f"{{\\an8\\pos({W / 2:.0f},{y:.0f})\\fs{fs}}}{txt}")
             open(ass, "a", encoding="utf-8").write("\n".join(lines) + "\n")
+        if fast:  # ป้าย "เร่ง ×3" มุมขวาบน ตอนช่วงสาธิตถูกเร่ง (= drawSpeed ใน app.js) · สีเขียว emerald
+            fs = int(st["size"] * (1.15 if W <= H else 0.75))
+            open(ass, "a", encoding="utf-8").write("".join(
+                f"Dialogue: 2,{cc.fmt_t(x['start'])},{cc.fmt_t(x['end'])},Default,,0,0,0,,"
+                f"{{\\an9\\pos({W * 0.94:.0f},{H * 0.05:.0f})\\fs{fs}\\1c&H81B910&}}เร่ง ×{x['speed']}\n" for x in fast))
         fc.append(f"[{cur}]{cc.ass_filter(ass)}[vs]")
         cur = "vs"
     fc.append(f"[{cur}]format=yuv420p[vout]")

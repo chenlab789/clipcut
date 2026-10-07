@@ -78,16 +78,50 @@ def claude_exe():
     return p if os.path.exists(p) else (shutil.which("claude.exe") or shutil.which("claude") or "claude")
 
 
+USAGE = os.path.join(os.path.expanduser("~"), ".clipcut", "usage.jsonl")
+
+
+def log_usage(out, model):
+    """จดการใช้ AI ทุกครั้ง → ~/.clipcut/usage.jsonl (งาน = env CLIPCUT_JOB) · สรุปท้ายงานด้วย usage_summary()"""
+    try:
+        u = out.get("usage") or {}
+        rec = {"t": round(__import__("time").time()), "job": os.environ.get("CLIPCUT_JOB", ""), "model": model,
+               "in": u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0),
+               "out": u.get("output_tokens", 0), "usd": round(out.get("total_cost_usd") or 0, 5)}
+        os.makedirs(os.path.dirname(USAGE), exist_ok=True)
+        with open(USAGE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+
+
+def usage_summary(job):
+    n = tin = tout = usd = 0
+    try:
+        for line in open(USAGE, encoding="utf-8"):
+            r = json.loads(line)
+            if r.get("job") == job:
+                n += 1; tin += r["in"]; tout += r["out"]; usd += r["usd"]
+    except Exception:
+        pass
+    return n, tin, tout, usd
+
+
 def ai(prompt, read=False, model="sonnet", tries=2, turns=6):
     """ถาม claude -p → dict/list (ดึง JSON ก้อนแรกจากคำตอบ)"""
-    cmd = [claude_exe(), "-p", "--output-format", "json", "--model", model, "--system-prompt", SYS]
+    # ไม่โหลดของ Claude Code ที่งานนี้ไม่ใช้ (เครื่องมือ/MCP/skill/settings ผู้ใช้) — "say ok" เดิม ~30k tokens → ~5k
+    # (--bare ลดได้อีกแต่ใช้กับแพ็กเกจ claude.ai ไม่ได้ ต้องมี API key)
+    cmd = [claude_exe(), "-p", "--output-format", "json", "--model", model, "--system-prompt", SYS,
+           "--tools", "Read" if read else "", "--strict-mcp-config", "--setting-sources", "project", "--disable-slash-commands"]
     cmd += ["--allowedTools", "Read", "--max-turns", str(turns)] if read else ["--max-turns", "1"]
     last = None
     for _ in range(tries):
         r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=600)
         try:
-            txt = json.loads(r.stdout)["result"]
+            out = json.loads(r.stdout)
+            txt = out["result"]
+            log_usage(out, model)
         except Exception:
             last = (r.stdout or r.stderr)[-500:]; continue
         m = re.search(r"[\[{].*[\]}]", txt, re.S)
@@ -296,16 +330,25 @@ def main():
     opts["emoji"] = 0  # เฉินสั่งเอาอีโมจิออก (2026-10-07) — หน้าแรกส่งอะไรมาก็ไม่ใส่
     src = os.path.abspath(a.input)
     base = os.path.splitext(os.path.basename(src))[0]
+    multi = [os.path.abspath(c) for c in opts.get("clips") or []]
+    if len(multi) > 1:  # หลายคลิป → ชื่องาน = ชื่อโฟลเดอร์กลุ่ม
+        base = opts.get("name") or base
     outdir = os.path.abspath(a.out or os.path.join(os.path.dirname(src), "clipcut_" + base))
     os.makedirs(outdir, exist_ok=True)
     seg_json = os.path.join(outdir, base + ".segments.json")
     cut = os.path.join(outdir, base + ".cut.mp4")
     edit = os.path.join(outdir, base + ".edit.json")
     json.dump(opts, open(os.path.join(outdir, "autopilot.opts.json"), "w", encoding="utf-8"), ensure_ascii=False)
+    os.environ.setdefault("CLIPCUT_JOB", f"{base}@{int(__import__('time').time())}")  # ลูก (pixel_gen/focus) จดรวมงานนี้
 
-    # 1 ถอดเสียง
-    step(1, "ถอดเสียง"); prog(2)
-    if not os.path.exists(seg_json):
+    # 1 ถอดเสียง (หลายคลิป = รวมเป็นคลิปเดียวก่อน — multiclip.py)
+    step(1, "รวมคลิป + ถอดเสียง" if len(multi) > 1 else "ถอดเสียง"); prog(2)
+    clips = None
+    if len(multi) > 1:
+        import multiclip
+        src, seg_json, clips = multiclip.build(multi, outdir, base, opts.get("kind", "story"), opts.get("order", "manual"),
+                                               log=lambda m: print(m, flush=True))
+    elif not os.path.exists(seg_json):
         subprocess.run([sys.executable, os.path.join(HERE, "transcribe.py"), src, seg_json, "medium"], check=True)
     data = ccfx.load_edit(seg_json)
     segs = data["segments"]
@@ -323,6 +366,10 @@ def main():
         i = f.get("i")
         if isinstance(i, int) and 0 <= i < len(segs) and f.get("text"):
             segs[i]["text"] = f["text"]; nfix += 1
+    import multiclip
+    nre = multiclip.drop_retakes(segs)  # พูดประโยคเดิมซ้ำติดกัน = เก็บเทคสุดท้าย
+    if nre:
+        print(f"  เทคซ้ำ {nre} จุด → เก็บเทคสุดท้าย", flush=True)
     json.dump(data, open(seg_json, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     style = cc.load_style(None)
     st = p1.get("style") or {}
@@ -344,10 +391,38 @@ def main():
         keep = cc.tighten_keep(src, cc.compute_keep(segs, 0.15, 0.6, extra=extra), protect=extra)
     else:
         keep = [(0.0, round(cc.probe_dur(src) * cc.FPS) / cc.FPS)]
-    cc.cut_video(src, keep, cut)
-    orig, kept = cc.probe_dur(src), sum(e - s for s, e in keep)
+    # ช่วงเงียบที่กำลังสาธิต (พิมพ์/แกะกล่อง/ทำให้ดู) → เก็บ / เร่ง ×2-4 / ข้าม แทนตัดทิ้ง (speedup.py)
+    import speedup
+    speeds1 = []
+    if opts["cut"] and opts.get("demo", 1):
+        keep, speeds, rep = speedup.plan(src, keep, segs, cc.probe_dur(src), os.path.join(outdir, "_speed"))
+        for r in rep:
+            print(f"  ช่วงสาธิต {r[0]} ที่ {r[1]:.0f} วิ ({r[2]:.1f} วิ)", flush=True)
+        speeds1 = speedup.to_cut1(speeds, keep)
+    print("  กำลังตัดคลิป (คลิปยาว/หลายคลิปใช้เวลาหลายนาที)…", flush=True); prog(45)
+    if speeds1:  # cut1 = ความเร็วปกติทุกช่วง (เก็บไว้ให้ editor สลับเร่ง/ปกติ/ตัด) → cut = เร่งแล้ว
+        cut1 = os.path.join(outdir, base + ".cut1.mp4")
+        cc.cut_video(src, keep, cut1)
+        print("  เร่งช่วงสาธิต…", flush=True); prog(52)
+        speedup.build(cut1, speeds1, cut)
+        json.dump([[round(s, 4), round(e, 4)] for s, e in keep], open(os.path.join(outdir, base + ".keep.json"), "w"))
+    else:
+        cc.cut_video(src, keep, cut)
+    orig, kept = cc.probe_dur(src), cc.probe_dur(cut)
     print(f"  {orig:.0f} วิ → {kept:.0f} วิ (ตัดออก {orig - kept:.0f} วิ)", flush=True)
     E = edit_init.build(seg_json, cut, style, keep, opts["aspect"], cc.probe_wh(src))
+    if speeds1:  # เวลาซับคิดจาก keep (= เวลาบน cut1) → เลื่อนตามช่วงที่เร่ง
+        for it in E["items"]:
+            it["start"] = round(speedup.out_time(it["start"], speeds1), 3)
+            it["end"] = round(speedup.out_time(it["end"], speeds1), 3)
+        E["speedups"] = speedup.items_for(speeds1)
+    if clips:  # รอยต่อคลิป (เวลาหลังตัด) → เส้นบน timeline · รวมฉากฮา = ฟิ้ว+แฟลชตอนขึ้นฉากใหม่
+        E["clips"] = [{"name": c["name"], "start": round(speedup.out_time(cc.remap(c["start"], keep), speeds1), 3)} for c in clips]
+        if opts.get("kind") == "funny":
+            for n, c in enumerate(E["clips"][1:], 1):
+                t = c["start"]
+                E["items"].append(edit_apply.fill({"id": f"a_sc{n}", "track": "sfx", "sfx": "whoosh_fast", "start": max(0, t - 0.12), "vol": 0.8}, E))
+                E["items"].append(edit_apply.fill({"id": f"z_sc{n}", "track": "fx", "fx": "flash", "start": t, "end": t + 0.3, "amount": 0.55}, E))
     if not opts["subs"]:
         E["items"] = []
     if opts["music"] and p1.get("music") and ccfx.music_file(p1["music"]):
@@ -370,6 +445,9 @@ def main():
         prog(95)
         ccfx.save_edit(edit, E)
         print(f"  {len(E['scenes'])} ฉาก · หน้าคนพูด {'เจอ' if E['face'] else 'ไม่เจอ (กรอบจะโชว์ทั้งภาพ)'}", flush=True)
+        n, tin, tout, usd = usage_summary(os.environ.get("CLIPCUT_JOB", ""))
+        if n:
+            print(f"  AI {n} ครั้ง · อ่าน {tin / 1000:.0f}k + เขียน {tout / 1000:.0f}k tokens (≈ ${usd:.2f} ถ้าคิดราคา API)", flush=True)
         prog(100)
         print("EDIT " + edit, flush=True)
         return
@@ -456,7 +534,7 @@ def main():
         prog(90)
         cuts, acc = [], 0.0
         for s0, e0 in keep:
-            acc += e0 - s0; cuts.append(round(acc, 3))
+            acc += e0 - s0; cuts.append(round(speedup.out_time(acc, speeds1), 3))
 
         def new_id(tr):
             n = 1
@@ -480,6 +558,9 @@ def main():
     cnt = {t: sum(1 for x in E["items"] if x["track"] == t) for t in ccfx.TRACKS}
     print(f"  ซับ {cnt['sub']} · ภาพ {cnt['broll']} · GIF {cnt['gif']} · อีโมจิ {cnt['emoji']} · เสียง {cnt['sfx']} · เอฟเฟกต์ {cnt['fx']}"
           + (f" (ข้าม {bad})" if bad else ""), flush=True)
+    n, tin, tout, usd = usage_summary(os.environ.get("CLIPCUT_JOB", ""))
+    if n:
+        print(f"  AI {n} ครั้ง · อ่าน {tin / 1000:.0f}k + เขียน {tout / 1000:.0f}k tokens (≈ ${usd:.2f} ถ้าคิดราคา API)", flush=True)
     prog(100)
     print("EDIT " + edit, flush=True)
 

@@ -1,4 +1,4 @@
-# clipcut — v1.0.1
+# clipcut — v1.1
 
 Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 
@@ -13,13 +13,16 @@ Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 - **GIF / meme**: local GIF library picked by AI per sentence — sticker overlays, full-screen meme cutaways (the clip pauses, everything after shifts automatically) and freeze-frame captions, each paired with synthesized meme SFX.
 - **Pixel-art characters follow the speaker** (creator vs. co-host sprites).
 - **Motion Explainer** mode: Remotion-rendered paper-collage scenes with AI-drawn pixel icons.
+- **Multi-clip**: drop several clips, arrange them yourself (story) or let it build a funny-scene compilation — AI trims each scene to the funny part and orders them (or shuffle).
+- **Demo-aware dead-air cut**: silent stretches where something is being shown (typing, unboxing) are detected from motion + AI vision and kept, sped up (×2–4 with a badge) or jump-cut instead of removed.
+- **Tray icon + start at login** (Windows), lean `claude -p` calls (~5k tokens overhead instead of ~30k) with per-job usage logged.
 - **Mobile**: optional access from your own phone via `tailscale serve` (tailnet only) behind a PIN, with a compact editor at `/m`.
 
 ## Install
 ```bash
 git clone https://github.com/chenlab789/clipcut ~/.claude/skills/clipcut
 ```
-Requires: Python 3, ffmpeg 8.x, `pip install requests pythainlp faster-whisper pillow numpy` (whisper optional), env `ELEVENLABS_API_KEY`.
+Requires: Python 3, ffmpeg 8.x, `pip install requests pythainlp faster-whisper pillow numpy opencv-python pystray` (whisper optional), env `ELEVENLABS_API_KEY`.
 
 Usage: `/clipcut <video>` in Claude Code — see [SKILL.md](SKILL.md).
 

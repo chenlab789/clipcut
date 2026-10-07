@@ -45,6 +45,12 @@ def _shift(E, t, d):
     for g in E.get("gaps", []):
         if g["at"] >= t - 1e-6:
             g["at"] = round(g["at"] + d, 3)
+    for c in E.get("clips") or []:  # เส้นรอยต่อคลิป (หลายคลิป)
+        if c["start"] >= t - 1e-6:
+            c["start"] = round(c["start"] + d, 3)
+    for x in E.get("speedups") or []:  # ช่วงสาธิตที่เร่ง
+        if x["start"] >= t - 1e-6:
+            x["start"], x["end"] = round(x["start"] + d, 3), round(x["end"] + d, 3)
     for tr in (E.get("faces") or {}).get("tracks", []):
         tr["pts"] = [[round(p[0] + d, 3) if p[0] >= t else p[0], *p[1:]] for p in tr["pts"] if not (d < 0 and t + d <= p[0] < t)]
     cam = E.get("cam") or {}

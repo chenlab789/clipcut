@@ -12,12 +12,13 @@ const PRESETS = {
 };
 const VIBE = { tech: "สอน / เทค", funny: "ฮา", vlog: "vlog / แกะกล่อง", hype: "มันส์" };
 const DENS = { 1: "น้อย", 2: "พอดี", 3: "แน่นสาย TikTok" };
-let opts = { ...PRESETS.full, mode: "fx", vibe: "tech", aspect: "9x16", density: 2 };
+let opts = { ...PRESETS.full, mode: "fx", vibe: "tech", aspect: "9x16", density: 2, kind: "story", order: "ai" };
 try { opts = { ...opts, ...JSON.parse(localStorage.getItem("clipcut.opts") || "{}") }; } catch (e) { /* ไม่มีก็ใช้ค่าเริ่มต้น */ }
 if (opts.cam === undefined) opts.cam = 1;
 if (opts.gif === undefined) opts.gif = 1;
 opts.emoji = 0; // เลิกใช้อีโมจิแล้ว (เฉินสั่งเอาออก)
-let staged = null;
+let staged = null;            // คลิปแรก (ใช้เช็คว่ามีคลิปรอทำไหม)
+let clips = [];               // [{path, name, dur, ctime, vertical}] — หลายคลิป = รวมเป็นคลิปเดียว (multiclip.py)
 // มือถือ (เข้าผ่าน tailscale) → editor แบบย่อ /m · ดูคลิปในเครื่องตัวเอง ไม่ใช่เปิดบนคอม
 const MOBILE = matchMedia("(pointer: coarse)").matches && innerWidth < 900;
 const EDITOR = MOBILE ? "/m" : "/edit";
@@ -33,11 +34,13 @@ function paintOpts() {
   document.querySelectorAll("[data-g]").forEach((g) => g.querySelectorAll("[data-v]").forEach((b) => b.classList.toggle("on", String(opts[g.dataset.g]) === b.dataset.v)));
   // explainer = จัดฉากเอง (ไม่ใช้อีโมจิ/ภาพแปะ/ซูม) · แนวตั้งเท่านั้น · ซับเต็มเสมอ
   document.querySelectorAll(".fxOnly").forEach((el) => el.classList.toggle("hidden", ex));
+  if ($("#orderRow")) $("#orderRow").classList.toggle("hidden", clips.length < 2 || opts.kind !== "funny");
   const on = KEYS.filter((k) => opts[k]);
   const names = { cut: "ตัด dead air", subs: "ซับ", sfx: "เสียง", gif: "GIF", broll: "ภาพพิกเซล", fx: "ซูมอัจฉริยะ", cam: "กล้องตามหน้า", music: "เพลง" };
   $("#sum").innerHTML = [
     ["แบบ", ex ? "Motion Explainer" : "แปะเอฟเฟกต์"],
     ["ใส่", ex ? "ฉาก · ซับ · เสียง · เพลง" : on.map((k) => names[k]).join(" · ") || "-"],
+    ...(clips.length > 1 ? [["คลิป", `${clips.length} คลิป · ${opts.kind === "funny" ? "รวมฉากฮา (" + (opts.order === "random" ? "สุ่ม" : "AI จัดลำดับ") + ")" : "เล่าเรื่อง ตามลำดับที่เรียง"}`]] : []),
     ["อารมณ์", VIBE[opts.vibe]], ["ความแน่น", DENS[opts.density]], ["ขนาด", ex ? "9:16" : opts.aspect.replace("x", ":")],
   ].map(([a, b]) => `<li><span>${a}</span><span>${esc(b)}</span></li>`).join("");
   try { localStorage.setItem("clipcut.opts", JSON.stringify(opts)); } catch (e) { /* โหมดส่วนตัว */ }
@@ -49,34 +52,83 @@ document.querySelectorAll("[data-g]").forEach((g) => (g.onclick = (e) => {
   opts[g.dataset.g] = g.dataset.g === "density" ? +b.dataset.v : b.dataset.v; paintOpts();
 }));
 
-function stage(path) {
-  staged = path; $("#fname").textContent = path.split(/[\\/]/).pop(); $("#fname").title = path;
-  show("vOpts"); paintOpts();
+function stage(path, add) {
+  if (!add) clips = [];
+  if (!clips.some((c) => c.path === path)) clips.push({ path, name: path.split(/[\\/]/).pop(), dur: 0 });
+  staged = clips[0].path;
+  show("vOpts"); paintClips(); paintOpts();
+  fetch("/api/clipinfo?" + clips.map((c) => "path=" + encodeURIComponent(c.path)).join("&")).then((r) => r.json()).then((info) => {
+    for (const i of info) Object.assign(clips.find((c) => c.path.toLowerCase() === i.path.toLowerCase()) || {}, i);
+    paintClips(); paintOpts();
+  }).catch(() => {});
 }
-$("#changeFile").onclick = () => { staged = null; post("/api/unstage"); show("vDrop"); };
+const mmssC = (d) => `${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, "0")}`;
+function paintClips() {
+  const multi = clips.length > 1;
+  $("#fname").textContent = multi ? `${clips.length} คลิป · รวม ${mmssC(clips.reduce((a, c) => a + (c.dur || 0), 0))}` : clips[0]?.name || "";
+  document.querySelectorAll(".multiOnly").forEach((el) => el.classList.toggle("hidden", !multi));
+  $("#orderRow").classList.toggle("hidden", !multi || opts.kind !== "funny");
+  $("#clipList").innerHTML = clips.map((c, i) => `<div class="cl" draggable="true" data-i="${i}">
+      <span class="grip" title="ลากเพื่อเรียง">${i + 1}</span><img src="/api/clipthumb?path=${encodeURIComponent(c.path)}" alt="">
+      <div class="ci"><b title="${esc(c.path)}">${esc(c.name)}</b><small>${c.dur ? mmssC(c.dur) : "…"}${c.ctime ? " · ถ่าย " + new Date(c.ctime).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : ""}</small></div>
+      <button class="ib" data-up="${i}" title="ขึ้น">▲</button><button class="ib" data-dn="${i}" title="ลง">▼</button><button class="ib" data-rm="${i}" title="เอาออก">×</button></div>`).join("");
+}
+function moveClip(i, j) { if (j < 0 || j >= clips.length) return; const [c] = clips.splice(i, 1); clips.splice(j, 0, c); staged = clips[0].path; paintClips(); }
+$("#clipList").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.up) moveClip(+b.dataset.up, +b.dataset.up - 1);
+  if (b.dataset.dn) moveClip(+b.dataset.dn, +b.dataset.dn + 1);
+  if (b.dataset.rm) { clips.splice(+b.dataset.rm, 1); if (!clips.length) return $("#changeFile").onclick(); staged = clips[0].path; paintClips(); paintOpts(); }
+};
+let dragI = null; // ลากเรียงในคอม (มือถือใช้ปุ่ม ▲▼)
+$("#clipList").addEventListener("dragstart", (e) => { dragI = +e.target.closest(".cl").dataset.i; e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); });
+$("#clipList").addEventListener("dragover", (e) => { if (dragI != null) { e.preventDefault(); e.stopPropagation(); } });
+$("#clipList").addEventListener("drop", (e) => {
+  if (dragI == null) return; e.preventDefault(); e.stopPropagation();
+  const t = e.target.closest(".cl"); if (t) moveClip(dragI, +t.dataset.i); dragI = null; drop.classList.remove("over");
+});
+$("#sortTime").onclick = () => { clips.sort((a, b) => (a.ctime || a.name).localeCompare(b.ctime || b.name)); staged = clips[0].path; paintClips(); };
+$("#addClip").onclick = () => { adding = true; $("#pick").click(); };
+let adding = false;
+$("#changeFile").onclick = () => { staged = null; clips = []; post("/api/unstage"); show("vDrop"); };
 $("#go").onclick = async () => {
   const ex = opts.mode === "explainer";
   if (!ex && !KEYS.some((k) => opts[k])) return alert("เลือกอย่างน้อย 1 อย่าง");
   const send = ex ? { ...opts, subs: 1, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, aspect: "9x16" } : opts;
-  const r = await post("/api/job", { path: staged, opts: send });
+  if (clips.length > 1 && opts.kind !== "funny") send.order = "manual";
+  const r = await post("/api/job", { paths: clips.map((c) => c.path), opts: send });
   if (!r.ok) alert(r.error);
 };
 
 /* ---------- ลากวาง / เลือกไฟล์ → อัปโหลดเข้าโฟลเดอร์โปรเจกต์ ---------- */
 const drop = $("#drop");
 drop.onclick = () => $("#pick").click();
-$("#pick").onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+$("#pick").onchange = (e) => { uploadAll([...e.target.files], adding); adding = false; e.target.value = ""; };
 ["dragenter", "dragover"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); if (t === "drop" || e.target === document.documentElement) drop.classList.remove("over"); }));
-document.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) upload(f); });
-function upload(f) {
-  if (!/\.(mp4|mov|mkv|m4v|webm|avi)$/i.test(f.name)) return alert("ไม่ใช่ไฟล์วิดีโอ");
-  show("vDrop");
-  const x = new XMLHttpRequest(); x.open("POST", "/api/upload"); x.setRequestHeader("X-Filename", encodeURIComponent(f.name));
-  x.upload.onprogress = (e) => ($("#upStat").textContent = `กำลังนำเข้า ${Math.round(100 * e.loaded / e.total)}% (${(e.total / 1048576).toFixed(0)} MB)`);
-  x.onload = () => { const r = JSON.parse(x.responseText); r.ok ? stage(r.path) : alert(r.error); };
-  x.onerror = () => alert("นำเข้าไม่ได้");
-  x.send(f);
+document.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) uploadAll([...e.target.files || e.dataTransfer.files], !$("#vOpts").classList.contains("hidden")); });
+// หลายไฟล์ในครั้งเดียว = โฟลเดอร์กลุ่มเดียวกัน (ชื่อซ้ำ IMG_0001 คนละวันไม่ทับกัน) · อัปทีละไฟล์
+async function uploadAll(files, add) {
+  files = files.filter((f) => /\.(mp4|mov|mkv|m4v|webm|avi)$/i.test(f.name));
+  if (!files.length) return alert("ไม่ใช่ไฟล์วิดีโอ");
+  const grp = files.length > 1 || add ? "clips_" + new Date().toISOString().replace(/\D/g, "").slice(0, 14) : "";
+  const back = add ? "vOpts" : null; show("vDrop");
+  for (let k = 0; k < files.length; k++) {
+    const path = await upload(files[k], grp, `${k + 1}/${files.length} `).catch((e) => { alert(e); return null; });
+    if (path) stage(path, add || k > 0);
+    if (k < files.length - 1) show("vDrop");
+  }
+  if (back) show(back);
+}
+function upload(f, grp, tag) {
+  return new Promise((ok, bad) => {
+    const x = new XMLHttpRequest(); x.open("POST", "/api/upload"); x.setRequestHeader("X-Filename", encodeURIComponent(f.name));
+    if (grp) x.setRequestHeader("X-Group", grp);
+    x.upload.onprogress = (e) => ($("#upStat").textContent = `กำลังนำเข้า ${tag || ""}${Math.round(100 * e.loaded / e.total)}% (${(e.total / 1048576).toFixed(0)} MB)`);
+    x.onload = () => { const r = JSON.parse(x.responseText); r.ok ? ok(r.path) : bad(r.error); };
+    x.onerror = () => bad("นำเข้าไม่ได้");
+    x.send(f);
+  });
 }
 
 /* ---------- ความคืบหน้า ---------- */

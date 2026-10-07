@@ -122,6 +122,14 @@
   body.mobile .drop .big { font-size: 18px; }
   body.mobile .pgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
   body.mobile .pc .acts .ib[data-a="name"] { display: none; }
+  /* รายการคลิป (หลายคลิป) */
+  #clipList { display: flex; flex-direction: column; gap: 6px; }
+  .cl { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); cursor: grab; }
+  .cl .grip { width: 24px; text-align: center; font-weight: 700; color: var(--accent); }
+  .cl img { width: 64px; height: 44px; object-fit: cover; border-radius: 6px; background: #000; }
+  .cl .ci { flex: 1; min-width: 0; } .cl .ci b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .cl small { color: var(--muted); font-size: 12px; }
+  .cl .ib { width: 28px; height: 28px; font-size: 11px; }
   :root[data-theme="light"] .chip.on { color: #0b5c40; }
   :root[data-theme="light"] .pc .th { background: #e3e7e5; }
   :root[data-theme="light"] .pc .badge.done { color: #fff; }
@@ -141,12 +149,12 @@
     <div class="drop" id="drop">
       <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></div>
       <div>
-        <div class="big">ลากคลิปดิบมาวางตรงนี้</div>
+        <div class="big">ลากคลิปดิบมาวางตรงนี้ (กี่คลิปก็ได้)</div>
         <div class="muted" id="upStat">mp4 · mov · mkv — AI ตัด ใส่ซับ ใส่เอฟเฟกต์ให้ แล้วเปิด editor ให้เช็คก่อนเรนเดอร์</div>
       </div>
       <button class="primary" type="button">เลือกไฟล์</button>
     </div>
-    <input type="file" id="pick" accept="video/*" hidden>
+    <input type="file" id="pick" accept="video/*" multiple hidden>
     <div class="flow">
       <div><b>1</b>ลากคลิปเข้ามา</div>
       <div><b>2</b>เลือกแบบตัดต่อ</div>
@@ -158,6 +166,17 @@
   <!-- 2. เลือกแบบ -->
   <section id="vOpts" class="card opts hidden">
     <div class="optMain">
+      <div class="multiOnly hidden" style="margin-bottom:22px">
+        <div class="lbl">คลิปที่จะรวม — ลากหรือกด ▲▼ เพื่อเรียง<span class="spacer"></span><a id="sortTime">เรียงตามเวลาถ่าย</a></div>
+        <div id="clipList"></div>
+        <div class="modes" data-g="kind" style="margin:12px 0 0">
+          <button class="mode" data-v="story"><b>เล่าเรื่อง</b><span>เรียงตามที่มึงจัด · ต่อกันเป็นเรื่องเดียว</span></button>
+          <button class="mode" data-v="funny"><b>รวมฉากฮา</b><span>แต่ละคลิปจบในตัว · AI ตัดหัวท้ายเหลือช่วงฮา · ฟิ้ว+แฟลชตอนขึ้นฉากใหม่</span></button>
+        </div>
+        <div class="chips" data-g="order" id="orderRow" style="margin-top:10px">
+          <button class="chip" data-v="ai">AI จัดลำดับตามจังหวะ (ฮาสุดไว้ต้น)</button><button class="chip" data-v="random">สุ่มลำดับ</button>
+        </div>
+      </div>
       <div class="lbl">แบบตัดต่อ</div>
       <div class="modes" data-g="mode">
         <button class="mode" data-v="fx"><b>แปะเอฟเฟกต์</b><span>คลิปเดิมเต็มจอ + ซับ เสียงเอฟเฟกต์ GIF/meme ภาพพิกเซล กล้องตามหน้า ซูมอัจฉริยะ</span></button>
@@ -192,7 +211,7 @@
     <div class="optSide">
       <div class="file">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></svg></div>
-        <div><b id="fname"></b><a class="muted" id="changeFile" style="cursor:pointer;font-size:12px">เปลี่ยนคลิป</a></div>
+        <div><b id="fname"></b><a class="muted" id="changeFile" style="cursor:pointer;font-size:12px">เริ่มใหม่</a> · <a class="muted" id="addClip" style="cursor:pointer;font-size:12px">+ เพิ่มคลิป</a></div>
       </div>
       <ul class="sum" id="sum"></ul>
       <button class="primary go" id="go">เริ่มทำ</button>

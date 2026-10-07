@@ -215,3 +215,12 @@ kbd { font: 11px/1 Consolas, monospace; padding: 4px 6px; border-radius: 5px; bo
 .gifCur video { width: 110px; height: 74px; object-fit: contain; background: #000; border-radius: 6px; }
 .gifCur small { color: var(--muted); }
 :root[data-theme="light"] .chipRow button.on { color: #fff; }
+
+/* ---------- ช่วงสาธิต (เร่ง/ปกติ/ตัด) + รอยต่อคลิป บนไม้บรรทัด ---------- */
+.spband { position: absolute; top: 3px; height: 22px; border-radius: 5px; font-size: 11px; font-weight: 700; display: flex;
+  align-items: center; justify-content: center; cursor: pointer; z-index: 3; overflow: hidden; white-space: nowrap; }
+.spband.m-speed { background: color-mix(in srgb, var(--accent) 35%, transparent); border: 1px solid var(--accent); color: var(--text); }
+.spband.m-normal { background: color-mix(in srgb, var(--muted) 25%, transparent); border: 1px solid var(--muted); color: var(--text); }
+.spband.m-cut { background: transparent; border: 1px dashed #ef4444; color: #ef4444; }
+.spband.sel { outline: 2px solid #fde047; }
+.clipmark { position: absolute; top: 0; bottom: -1000px; width: 0; border-left: 2px dashed #fde047; z-index: 2; pointer-events: auto; }

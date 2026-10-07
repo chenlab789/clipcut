@@ -189,9 +189,13 @@ def thumb_path(edit):
 
 
 def run_job(src, opts):
-    """autopilot.py ทั้งสาย → แถบความคืบหน้าในหน้าแรก → จบแล้วเปิด editor"""
+    """autopilot.py ทั้งสาย → แถบความคืบหน้าในหน้าแรก → จบแล้วเปิด editor
+    หลายคลิป: opts["clips"] = [path...] · ชื่องาน/โฟลเดอร์ = โฟลเดอร์กลุ่มที่อัปไว้"""
     base = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(projects_root(), base)
+    if len(opts.get("clips") or []) > 1:  # โฟลเดอร์ใหม่เสมอ — ไฟล์รวมชื่อ = ชื่อโฟลเดอร์ ห้ามทับคลิปต้นฉบับ
+        base = opts["name"] = "multi_" + time.strftime("%Y%m%d_%H%M%S")
+        out = os.path.join(projects_root(), base)
     job.clear()
     job.update(state="running", name=base, src=src, step=0, total=5, msg="เริ่ม", prog=0, log=[], edit=None)
     broadcast("job", job)
@@ -463,6 +467,26 @@ class H(BaseHTTPRequestHandler):
             return self.send_file(os.path.join(UI, APP_ICONS[path]), cache=True)
         if path in ("/m", "/m.html"):  # editor แบบย่อสำหรับมือถือ
             return self.send_file(os.path.join(UI, "m.html"))
+        if path == "/api/clipthumb":  # ภาพปกคลิปที่อัปไว้ (ยังไม่เป็นงาน)
+            q = os.path.realpath(parse_qs(url.query).get("path", [""])[0])
+            if not q.startswith(os.path.realpath(projects_root())) or not os.path.isfile(q):
+                return self.send_error(404)
+            th = os.path.join(os.path.dirname(q), "_thumbs", os.path.basename(q) + ".jpg")
+            if not os.path.exists(th):
+                os.makedirs(os.path.dirname(th), exist_ok=True)
+                subprocess.run([ccfx_ff(), "-y", "-v", "error", "-ss", "0.5", "-i", q, "-frames:v", "1", "-vf", "scale=-2:240", th],
+                               capture_output=True, timeout=30)
+            return self.send_file(th, cache=True)
+        if path == "/api/clipinfo":
+            import multiclip
+            out = []
+            for q in parse_qs(url.query).get("path", []):
+                q = os.path.realpath(q)
+                if q.startswith(os.path.realpath(projects_root())) and os.path.isfile(q):
+                    i = multiclip.probe(q)
+                    out.append({"path": q, "name": os.path.basename(q), "dur": round(i["dur"], 1), "ctime": i["ctime"],
+                                "vertical": i["h"] >= i["w"]})
+            return self.send_json(out)
         if path == "/api/video":  # ดู/โหลดคลิปที่เรนเดอร์บนมือถือ
             q = self.own_video(parse_qs(url.query).get("path", [""])[0])
             return self.send_file(q) if q else self.send_error(404)
@@ -534,7 +558,9 @@ class H(BaseHTTPRequestHandler):
             name = os.path.basename(unquote(self.headers.get("X-Filename") or "clip.mp4"))
             if not name.lower().endswith(VIDEO_EXT):
                 return self.send_json({"ok": False, "error": "ไม่ใช่ไฟล์วิดีโอ"}, 400)
-            d = os.path.join(projects_root(), os.path.splitext(name)[0])
+            import re as _re
+            grp = _re.sub(r"[^A-Za-z0-9_-]", "", unquote(self.headers.get("X-Group") or ""))[:40]
+            d = os.path.join(projects_root(), grp or os.path.splitext(name)[0])
             os.makedirs(d, exist_ok=True)
             dst = os.path.join(d, name)
             with open(dst, "wb") as f:
@@ -570,11 +596,14 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/job":
             if job.get("state") == "running":
                 return self.send_json({"ok": False, "error": "กำลังทำคลิปอื่นอยู่"}, 409)
-            src = body.get("path")
-            if not src or not os.path.isfile(src):
+            paths = [x for x in (body.get("paths") or [body.get("path")]) if x]
+            if not paths or not all(os.path.isfile(x) for x in paths):
                 return self.send_json({"ok": False, "error": "ไม่เจอไฟล์"}, 400)
+            opts = body.get("opts") or {}
+            if len(paths) > 1:
+                opts["clips"] = paths
             state["staged"] = None
-            threading.Thread(target=run_job, args=(src, body.get("opts") or {}), daemon=True).start()
+            threading.Thread(target=run_job, args=(paths[0], opts), daemon=True).start()
             return self.send_json({"ok": True})
         if path == "/api/job/cancel":
             if job.get("pid"):
@@ -619,6 +648,19 @@ class H(BaseHTTPRequestHandler):
             ccfx.save_edit(EDIT, E)
             threading.Thread(target=make_proxy, args=(EDIT,), daemon=True).start()
             return self.send_json({"ok": True})
+        if path == "/api/speed":  # ช่วงสาธิต: เร่ง / ความเร็วปกติ / ตัดทิ้ง → สร้างคลิปใหม่ (speedup.set_mode)
+            import speedup
+            if not EDIT:
+                return self.send_json({"ok": False, "error": "ยังไม่ได้เปิดโปรเจกต์"}, 400)
+            E = ccfx.load_edit(EDIT)
+            try:
+                ok = speedup.set_mode(E, PROJ, str(body.get("id")), str(body.get("mode")))
+            except Exception as ex:
+                return self.send_json({"ok": False, "error": str(ex)}, 400)
+            if ok:
+                ccfx.save_edit(EDIT, E)
+                threading.Thread(target=make_proxy, args=(EDIT,), daemon=True).start()
+            return self.send_json({"ok": ok})
         if path == "/api/forget":
             save_recent([p for p in recent_list() if p != body.get("edit")])
             return self.send_json({"ok": True})
@@ -731,6 +773,46 @@ def post(port, path, data):
     urllib.request.urlopen(req, timeout=30).read()
 
 
+def tray(srv, page):
+    """ไอคอนถาดข้างนาฬิกา = โปรแกรมรันอยู่ · คลิก = เปิด ClipCut · คลิกขวา = เมนู (ปิดโปรแกรมได้ถ้าไม่มีงานค้าง)
+    ไม่มี pystray = ไม่มีถาด (โปรแกรมยังรันปกติ)"""
+    try:
+        import pystray
+        from PIL import Image
+    except ImportError:
+        return srv.serve_forever()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def busy():
+        return job.get("state") == "running" or bool(state["render"])
+
+    def tip():
+        e = os.path.basename(EDIT)[: -len(".edit.json")] if EDIT else "-"
+        return f"ClipCut — รันอยู่ · งาน: {e[:40]}" + (" · กำลังทำงาน" if busy() else "")
+
+    def quit_(icon, _):
+        if busy():
+            return icon.notify("กำลังทำคลิป/เรนเดอร์อยู่ — รอเสร็จก่อนค่อยปิด", "ClipCut")
+        icon.stop()
+        srv.shutdown()
+
+    icon = pystray.Icon("clipcut", Image.open(os.path.join(UI, "icon-180.png")), tip(), pystray.Menu(
+        pystray.MenuItem("เปิด ClipCut", lambda *_: open_app(page), default=True),
+        pystray.MenuItem("เปิดโฟลเดอร์งาน", lambda *_: subprocess.Popen(["explorer", projects_root()])),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("ปิดโปรแกรม (มือถือจะใช้ไม่ได้)", quit_)))
+
+    def keep_tip():
+        while True:
+            time.sleep(3)
+            try:
+                icon.title = tip()
+            except Exception:
+                pass
+    threading.Thread(target=keep_tip, daemon=True).start()
+    icon.run()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("target", nargs="?", help="คลิปวิดีโอ (รอเลือกแบบ) หรือ <ชื่อ>.edit.json (เปิด editor ตรง)")
@@ -760,7 +842,7 @@ def main():
     print(f"🦞 clipcut → {page}", flush=True)
     if not a.no_open:
         open_app(page)
-    srv.serve_forever()
+    tray(srv, f"http://127.0.0.1:{a.port}/")
 
 
 if __name__ == "__main__":

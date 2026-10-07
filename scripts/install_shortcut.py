@@ -53,20 +53,13 @@ def desktop():
     return r.stdout.strip()
 
 
-def main():
-    make_icon()
-    make_app_icons()
-    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-    if not os.path.exists(pyw):
-        pyw = sys.executable
-    server = os.path.join(HERE, "editor", "server.py")
-    lnk = os.path.join(desktop(), "ClipCut.lnk")
+def shortcut(lnk, pyw, args, desc):
     ps = f"""$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}')
 $s.TargetPath = '{pyw}'
-$s.Arguments = '"{server}"'
-$s.WorkingDirectory = '{os.path.dirname(server)}'
+$s.Arguments = '{args}'
+$s.WorkingDirectory = '{os.path.join(HERE, "editor")}'
 $s.IconLocation = '{ICO},0'
-$s.Description = 'ClipCut — ลากคลิปมาวาง ได้คลิปตัดเสร็จ'
+$s.Description = '{desc}'
 $s.Save()
 """
     f = os.path.join(tempfile.gettempdir(), "clipcut_shortcut.ps1")
@@ -74,6 +67,25 @@ $s.Save()
         fh.write(ps)
     subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f], check=True)
     print("✓", lnk)
+
+
+def main():
+    """ไอคอน Desktop (เปิดหน้าต่าง) + Startup (เริ่มเบื้องหลังตอนล็อกอิน มีไอคอนถาด — มือถือใช้ได้ทันทีหลังรีสตาร์ท)
+    ไม่อยากให้เริ่มเอง: python install_shortcut.py --no-startup"""
+    make_icon()
+    make_app_icons()
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.exists(pyw):
+        pyw = sys.executable
+    server = os.path.join(HERE, "editor", "server.py")
+    shortcut(os.path.join(desktop(), "ClipCut.lnk"), pyw, f'"{server}"', "ClipCut — ลากคลิปมาวาง ได้คลิปตัดเสร็จ")
+    startup = os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "ClipCut.lnk")
+    if "--no-startup" in sys.argv:
+        if os.path.exists(startup):
+            os.remove(startup)
+            print("ลบเริ่มเองตอนล็อกอินแล้ว")
+    else:
+        shortcut(startup, pyw, f'"{server}" --no-open', "ClipCut เบื้องหลัง (ไอคอนถาด)")
 
 
 if __name__ == "__main__":

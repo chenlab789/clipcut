@@ -320,6 +320,7 @@ function drawFrame() {
   for (const it of active.filter((x) => x.track === "emoji")) drawEmoji(it, t);
   for (const it of active.filter((x) => x.track === "gif" && x.mode !== "overlay")) drawGif(it, t);
   for (const it of active.filter((x) => x.track === "sub")) drawSub(it, t);
+  drawSpeed(t);
   const s = sel && byId(sel);
   if (s && movable(s) && t >= s.start && t <= s.end) {
     const b = boxOf(s); ctx.strokeStyle = "#fde047"; ctx.lineWidth = 4; ctx.setLineDash([16, 10]);
@@ -516,6 +517,20 @@ function renderTimeline(flashIds = []) {
     const d = document.createElement("div"); d.className = "tick"; d.style.left = s * pps + "px"; d.textContent = fmt(s, false); ruler.appendChild(d);
   }
   drawWave();
+  ruler.querySelectorAll(".spband,.clipmark").forEach((x) => x.remove());
+  for (const sp of E.speedups || []) {
+    const d = document.createElement("div"), m = sp.mode || "speed";
+    d.className = "spband m-" + m + (sel === "sp:" + sp.id ? " sel" : "");
+    d.style.left = sp.start * pps + "px"; d.style.width = Math.max(14, (sp.end - sp.start) * pps) + "px";
+    d.textContent = m === "speed" ? "×" + sp.speed : m === "normal" ? "ปกติ" : "ตัด";
+    d.title = "ช่วงสาธิต — คลิกเพื่อเลือก เร่ง / ความเร็วปกติ / ตัดทิ้ง";
+    d.onclick = (ev) => { ev.stopPropagation(); seek(sp.start + 0.01); select("sp:" + sp.id); };
+    ruler.appendChild(d);
+  }
+  for (const c of (E.clips || []).slice(1)) {
+    const d = document.createElement("div"); d.className = "clipmark"; d.style.left = c.start * pps + "px";
+    d.title = "เริ่มคลิป: " + c.name; ruler.appendChild(d);
+  }
   const tracks = $("#tracks"); tracks.innerHTML = "";
   for (const tr of trackList()) {
     const row = document.createElement("div"); row.className = "track"; row.dataset.track = tr.id;
@@ -612,6 +627,31 @@ function drawWave() {
 }
 
 /* ---------- select / canvas drag ---------- */
+function renderSpeedInspector(id) {
+  const sp = (E.speedups || []).find((x) => x.id === id), body = $("#inspBody");
+  if (!sp) { sel = null; return renderInspector(); }
+  $("#inspHead").textContent = "ช่วงสาธิต";
+  const src = sp.src[1] - sp.src[0], m = sp.mode || "speed";
+  body.innerHTML = `<p class="muted" style="margin:0 0 10px">ช่วงที่เงียบแต่กำลังทำให้ดู ยาวจริง ${src.toFixed(1)} วิ — AI เลือกให้เร่ง ×${sp.speed}</p>
+    <div class="seg" style="display:flex;margin-bottom:10px">${[["speed", "เร่ง ×" + sp.speed], ["normal", "ความเร็วปกติ"], ["cut", "ตัดทิ้ง"]]
+      .map(([k, t]) => `<button data-spm="${k}" class="${k === m ? "on" : ""}" style="flex:1">${t}</button>`).join("")}</div>
+    <p class="muted" style="font-size:12px;margin:0">เปลี่ยนแล้วต้องสร้างคลิปใหม่ ~ครึ่งนาที ของที่อยู่หลังช่วงนี้เลื่อนตามให้เอง</p>`;
+  body.querySelectorAll("[data-spm]").forEach((b) => (b.onclick = async () => {
+    if (b.dataset.spm === m) return;
+    if (dirty.size || deleted.size) await save();
+    body.querySelectorAll("button").forEach((x) => (x.disabled = true)); toast("กำลังสร้างคลิปใหม่…");
+    const r = await post("/api/speed", { id, mode: b.dataset.spm }).catch(() => ({ ok: false }));
+    toast(r.ok ? "เสร็จ" : r.error || "ทำไม่ได้");
+  }));
+}
+function drawSpeed(t) { // ป้าย "เร่ง ×3" มุมขวาบน (= render_edit)
+  const sp = (E.speedups || []).find((x) => (x.mode || "speed") === "speed" && t >= x.start && t <= x.end);
+  if (!sp) return;
+  const st = E.style, em = (FONT_METRIC[st.font] || [0.8])[0], fs = st.size * (W <= H ? 1.15 : 0.75) * em;
+  ctx.save(); ctx.font = `${fs}px "${st.font}"`; ctx.textAlign = "right"; ctx.textBaseline = "top"; ctx.lineJoin = "round";
+  ctx.lineWidth = st.outline_w * 1.6; ctx.strokeStyle = st.outline; ctx.strokeText("เร่ง ×" + sp.speed, W * 0.94, H * 0.05);
+  ctx.fillStyle = "#10b981"; ctx.fillText("เร่ง ×" + sp.speed, W * 0.94, H * 0.05); ctx.restore();
+}
 function select(id) { sel = id; renderInspector(); document.querySelectorAll(".item").forEach((e) => e.classList.toggle("sel", e.dataset.id === id)); drawFrame(); }
 function canvasPt(ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * W / r.width, (ev.clientY - r.top) * H / r.height]; }
 let cdrag = null;
@@ -653,6 +693,7 @@ function slider(key, v, min, max, step) { return `<div class="row"><input type="
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function renderInspector() {
   if (sel && sel.startsWith("sc") && isEx()) { $("#inspHead").textContent = "แก้ฉาก"; return renderSceneInspector(+sel.slice(2)); }
+  if (sel && sel.startsWith("sp:")) return renderSpeedInspector(sel.slice(3));
   const body = $("#inspBody"), it = sel && byId(sel);
   $("#inspHead").textContent = it ? "แก้ค่า" : "ภาพรวม";
   if (!it) {
