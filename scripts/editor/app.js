@@ -141,6 +141,7 @@ async function load() {
   await loadFont();
   applyAspect(); renderLib(isEx() ? "sfx" : "gif"); renderTimeline(); renderInspector(); setSave("ok");
   if (isEx()) setupExplainer();
+  $("#loading").classList.add("off"); setTimeout(() => $("#loading").remove(), 300);
   vid.addEventListener("loadedmetadata", () => {
     $("#tDur").textContent = fmt(vid.duration, false);
     const q = new URLSearchParams(location.search); // ?t=12.5&sel=e1 — เปิดตรงจุดที่จะให้ดู
@@ -1069,20 +1070,47 @@ const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "ap
 /* ---------- render ---------- */
 async function startRender(preview) {
   if (dirty.size || deleted.size) await save();
-  $("#log").textContent = ""; $("#drawer").classList.add("on"); $("#drawerTitle").textContent = preview ? "เรนเดอร์ทดสอบ" : "Render";
+  $("#log").textContent = ""; $("#drawer").classList.add("on"); $("#drawerTitle").textContent = preview ? "เรนเดอร์ทดสอบ" : "กำลังเรนเดอร์";
+  R.t0 = Date.now(); R.pct = 0; paintRender("running", "เตรียมไฟล์…");
   const r = await fetch("/api/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preview }) }).then((x) => x.json());
   if (!r.ok) logLine(r.error);
 }
 function logLine(s) { const l = $("#log"); l.append(s + "\n"); l.scrollTop = l.scrollHeight; }
+const R = { t0: 0, pct: 0, out: null };
+function paintRender(state, now) {
+  const dr = $("#drawer"), run = state === "running";
+  dr.classList.toggle("run", run); dr.classList.toggle("ok", state === "done"); dr.classList.toggle("bad", state === "error");
+  const pct = state === "done" ? 100 : R.pct;
+  $("#rPct").textContent = state === "error" ? "พัง" : Math.round(pct) + "%"; $("#rBar").style.width = pct + "%";
+  let eta = "";
+  if (run && R.pct > 3) { const left = (Date.now() - R.t0) / 1000 * (100 - R.pct) / R.pct; eta = left < 20 ? "อีกแป๊บเดียว" : left < 60 ? "เหลือไม่ถึงนาที" : `เหลืออีก ~${Math.ceil(left / 60)} นาที`; }
+  else if (state === "done" && R.t0) eta = `ใช้เวลา ${fmt((Date.now() - R.t0) / 1000, false)}`;
+  $("#rEta").textContent = eta;
+  if (now != null) $("#rNow").textContent = now;
+  $("#rDone").classList.toggle("hidden", state !== "done" || !R.out);
+  $("#btnCancelRender").style.display = run ? "" : "none";
+}
 function onRender(d) {
   $("#drawer").classList.add("on");
-  if (d.line) logLine(d.line);
+  if (!R.t0) R.t0 = Date.now();
+  let now = null;
+  if (d.line) {
+    logLine(d.line);
+    const m = d.line.match(/^\s*([\d.]+)%/);
+    if (m) { R.pct = +m[1]; now = "กำลังเข้ารหัสวิดีโอ"; }
+    else if (!/^(▶|OUTPUT|✓|กราฟ)/.test(d.line.trim()) && d.line.trim()) now = d.line.trim().replace(/…$/, "") + "…";
+  }
   const busy = d.state === "running"; $("#btnRender").disabled = busy; $("#btnPreviewRender").disabled = busy;
   if (d.state === "done") {
-    logLine("\nเสร็จแล้ว"); if (d.output) { const a = document.createElement("a"); a.textContent = "เปิดโฟลเดอร์ → " + d.output; a.onclick = () => fetch("/api/reveal", { method: "POST", body: JSON.stringify({ path: d.output }) }); $("#log").append(a); }
+    R.out = d.output || null; $("#drawerTitle").textContent = "เรนเดอร์เสร็จแล้ว";
+    paintRender("done", d.output ? d.output.split(/[\\/]/).pop() : "เสร็จแล้ว"); R.t0 = 0;
     toast("เรนเดอร์เสร็จ");
-  } else if (d.state === "error") logLine(`\nพัง (code ${d.code}) — ดู log ด้านบน`);
+  } else if (d.state === "error") {
+    $("#drawerTitle").textContent = "เรนเดอร์ไม่สำเร็จ"; paintRender("error", `พัง (code ${d.code}) — เปิดรายละเอียดดูสาเหตุ`); $("#rDet").open = true; R.t0 = 0;
+  } else paintRender("running", now);
 }
+$("#rPlay").onclick = () => R.out && fetch("/api/play", { method: "POST", body: JSON.stringify({ path: R.out }) });
+$("#rDir").onclick = () => R.out && fetch("/api/reveal", { method: "POST", body: JSON.stringify({ path: R.out }) });
 $("#btnRender").onclick = () => startRender(false);
 $("#btnPreviewRender").onclick = () => startRender(true);
 $("#btnCancelRender").onclick = () => fetch("/api/render/cancel", { method: "POST", body: "{}" });

@@ -97,8 +97,135 @@ def watcher():
 
 
 # ---------- โปรเจกต์ ----------
-HIDDEN = os.path.join(os.path.dirname(RECENT), "hidden.json")
+HIDDEN = os.path.join(os.path.dirname(RECENT), "hidden.json")  # รุ่นเก่า: กด "เอาออกจากรายการ" (ไม่ลบไฟล์)
+TRASH = os.path.join(os.path.dirname(RECENT), "trash.json")    # ถังขยะแอป: [{edit, t}] ครบ 30 วัน = ลบโฟลเดอร์จริง
 rlock = threading.Lock()
+
+
+def trashed_projects():
+    with rlock:
+        return [x for x in _jload(TRASH) if isinstance(x, dict) and os.path.exists(x.get("edit", ""))]
+
+
+def project_trash(edit, on=True):
+    with rlock:
+        t = [x for x in _jload(TRASH) if isinstance(x, dict) and os.path.normcase(x.get("edit", "")) != os.path.normcase(edit)]
+        if on:
+            t.append({"edit": edit, "t": time.time()})
+        _jsave(TRASH, t)
+
+
+def project_purge(edit):
+    """ลบถาวร: โฟลเดอร์งานไปถังขยะ Windows (กู้ได้จากถัง Windows) · ต้องเป็นโฟลเดอร์งานใต้ projects_root เท่านั้น"""
+    global EDIT, PROJ
+    import library
+    d = os.path.realpath(os.path.dirname(edit))
+    root = os.path.realpath(projects_root())
+    if os.path.dirname(d) != root or os.path.basename(d).startswith(("_", ".")) or not edit.endswith(".edit.json"):
+        return False
+    if job.get("state") == "running" and os.path.normcase(os.path.dirname(job.get("edit") or "")) == os.path.normcase(d):
+        return False
+    if EDIT and os.path.normcase(os.path.dirname(EDIT)) == os.path.normcase(d):
+        EDIT = PROJ = None
+    ok = library.recycle(d)
+    if ok:
+        project_trash(edit, False)
+        save_recent([x for x in _jload(RECENT) if os.path.normcase(os.path.dirname(x)) != os.path.normcase(d)])
+    return ok
+
+
+def purge_old_projects():
+    import library
+    for x in trashed_projects():
+        if time.time() - x["t"] > library.TRASH_DAYS * 86400:
+            project_purge(x["edit"])
+
+
+def trash_listing():
+    import library
+    root, days = projects_root(), library.TRASH_DAYS
+    left = lambda t: max(0, days - int((time.time() - t) // 86400))  # noqa: E731
+    clips = [dict(c, left=left(c["trashed"])) for c in library.listing(root, trashed=True)]
+    projs = []
+    for x in trashed_projects():
+        try:
+            projs.append(dict(project_info(x["edit"]), trashed=x["t"], left=left(x["t"])))
+        except Exception:
+            pass
+    return {"clips": sorted(clips, key=lambda c: -c["trashed"]), "projects": sorted(projs, key=lambda c: -c["trashed"]), "days": days}
+
+
+# ---------- เวลาที่ใช้ตัด (ไว้เดาว่าเหลืออีกกี่นาที) ----------
+STATS = os.path.join(os.path.dirname(RECENT), "jobstats.json")
+
+
+def est_secs(dur, opts):
+    """เวลาทั้งงาน ≈ 60 + k × ความยาวคลิป · k = มัธยฐานจากงานจริงแบบเดียวกัน 12 งานล่าสุด"""
+    mode = opts.get("mode") or "fx"
+    ks = sorted((x["secs"] - 60) / x["dur"] for x in _jload(STATS)[-40:]
+                if isinstance(x, dict) and x.get("mode") == mode and x.get("dur", 0) > 5)[-12:]
+    k = ks[len(ks) // 2] if ks else (5.0 if mode == "explainer" else 4.0)
+    return 60 + max(1.0, k) * dur
+
+
+def save_stat(dur, secs, opts):
+    if dur > 5 and secs > 20:
+        with rlock:
+            _jsave(STATS, (_jload(STATS) + [{"dur": round(dur, 1), "secs": round(secs), "mode": opts.get("mode") or "fx",
+                                              "clips": len(opts.get("clips") or [1]), "t": int(time.time())}])[-200:])
+
+
+def src_dur(paths):
+    import multiclip
+    tot = 0.0
+    for q in paths:
+        try:
+            tot += multiclip.probe(q)["dur"]
+        except Exception:
+            pass
+    return tot
+
+
+# ---------- แจ้งเตือนมือถือ (Web Push) — ตัด/เรนเดอร์เสร็จ เด้งบอกแม้ปิดหน้าไปแล้ว ----------
+PUSH_SUBS = os.path.join(os.path.dirname(RECENT), "push.json")
+VAPID_PEM = os.path.join(os.path.dirname(RECENT), "vapid.pem")
+
+
+def vapid_public():
+    """กุญแจสาธารณะ (base64url) ให้หน้าเว็บสมัครรับแจ้งเตือน · กุญแจลับอยู่ ~/.clipcut/vapid.pem เท่านั้น"""
+    import base64
+    from py_vapid import Vapid
+    from cryptography.hazmat.primitives import serialization
+    if not os.path.exists(VAPID_PEM):
+        v = Vapid(); v.generate_keys(); v.save_key(VAPID_PEM)
+    v = Vapid.from_file(VAPID_PEM)
+    raw = v.public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def push_send(title, body, url="/"):
+    def go():
+        try:
+            from pywebpush import webpush, WebPushException
+        except ImportError:
+            return
+        with rlock:
+            subs = _jload(PUSH_SUBS)
+        dead = []
+        for sub in subs:
+            try:
+                webpush(sub, json.dumps({"title": title, "body": body, "url": url}, ensure_ascii=False),
+                        vapid_private_key=VAPID_PEM, vapid_claims={"sub": "https://github.com/chenlab789/clipcut"}, timeout=15)
+            except WebPushException as ex:
+                if ex.response is not None and ex.response.status_code in (404, 410):  # ยกเลิก/ลบแอปไปแล้ว
+                    dead.append(sub.get("endpoint"))
+            except Exception:
+                pass
+        if dead:
+            with rlock:
+                _jsave(PUSH_SUBS, [x for x in _jload(PUSH_SUBS) if x.get("endpoint") not in dead])
+    if os.path.exists(PUSH_SUBS):
+        threading.Thread(target=go, daemon=True).start()
 
 
 def _jload(f):
@@ -119,9 +246,10 @@ def recent_list():
     """งานที่เพิ่งเปิด (recent.json) + งานอื่นที่อยู่ในโฟลเดอร์โปรเจกต์ (สแกนเอง ล่าสุดก่อน) · ยกเว้นที่กดเอาออก"""
     with rlock:
         rec, hid = _jload(RECENT), {os.path.normcase(x) for x in _jload(HIDDEN)}
+        hid |= {os.path.normcase(x.get("edit", "")) for x in _jload(TRASH) if isinstance(x, dict)}
     out, seen = [], set()
     for p in rec:
-        if os.path.exists(p) and os.path.normcase(p) not in seen:
+        if os.path.exists(p) and os.path.normcase(p) not in seen and os.path.normcase(p) not in hid:
             out.append(p); seen.add(os.path.normcase(p))
     root, found = projects_root(), []
     try:
@@ -215,6 +343,8 @@ def scan_library():
     import library
     state["lib_scan"] = True
     try:
+        library.purge_old(projects_root())
+        purge_old_projects()
         if library.scan_old(projects_root(), recent_list()):
             broadcast("library", {})
         for p in library.unnamed(projects_root()):  # คลิปเก่าที่ยังไม่มีชื่อ → AI ตั้งให้ (ทีละคลิปเบื้องหลัง)
@@ -276,7 +406,10 @@ def run_job(src, opts):
     while os.path.isdir(out) and any(f.endswith(".edit.json") for f in os.listdir(out)):  # ตัดคลิปเดิมซ้ำ = งานใหม่ ไม่ทับงานเก่า
         out = os.path.join(projects_root(), f"{base}_{n}"); n += 1
     job.clear()
-    job.update(state="running", name=base, src=src, step=0, total=5, msg="เริ่ม", prog=0, log=[], edit=None)
+    dur = src_dur(opts.get("clips") or [src])
+    job.update(state="running", name=base, src=src, srcs=opts.get("clips") or [src], step=0, total=5, msg="เริ่ม", prog=0,
+               log=[], edit=None, steps=[], notes={}, doing="", t0=time.time(), dur=round(dur, 1), eta=round(est_secs(dur, opts)),
+               seen=False)
     broadcast("job", job)
     cmd = [sys.executable, "-u", os.path.join(SCRIPTS, "autopilot.py"), src, "--out", out,
            "--opts", json.dumps(opts, ensure_ascii=False)]
@@ -286,10 +419,29 @@ def run_job(src, opts):
     job["pid"] = p.pid
     for line in p.stdout:
         line = line.rstrip()
+        if line.startswith("STEPS "):  # รายชื่อขั้นตอนของงานนี้ (ตามตัวเลือกที่เปิด)
+            try:
+                job["steps"] = json.loads(line[6:])
+            except ValueError:
+                pass
+            continue
+        if line.startswith("NOTE "):  # ของที่ได้ระหว่างทาง (ชื่อ / คำสั่งเสียง / ตัดเหลือกี่วิ / รูป / GIF) + กำลังทำอะไร
+            try:
+                d = json.loads(line[5:])
+            except ValueError:
+                continue
+            if d.get("k") == "doing":
+                job["doing"] = d.get("text", "")
+            else:
+                job["notes"][d.pop("k")] = d
+            job["now"] = time.time()
+            broadcast("job", job)
+            continue
         if line.startswith("STEP "):
             n, _, msg = line[5:].partition(" ")
             job["step"], job["total"] = (int(x) for x in n.split("/"))
             job["msg"] = msg
+            job["doing"] = ""
         elif line.startswith("PROG "):
             job["prog"] = int(line[5:])
             broadcast("job", job)
@@ -297,6 +449,7 @@ def run_job(src, opts):
         elif line.startswith("EDIT "):
             job["edit"] = line[5:]
         job["log"] = (job["log"] + [line])[-80:]
+        job["now"] = time.time()
         broadcast("job", job)
     p.wait()
     job.pop("pid", None)
@@ -309,10 +462,19 @@ def run_job(src, opts):
             broadcast("library", {})
         except Exception:
             pass
-        open_project(job["edit"])
+        if not EDIT:  # editor ว่างอยู่ → เปิดงานนี้เลย · กำลังแก้งานอื่นอยู่ = ไม่สลับใต้มือ (กดเปิดจากแถบแจ้ง/หน้าแรกเอง)
+            open_project(job["edit"])
         job["state"] = "done"
+        save_stat(dur, time.time() - job["t0"], opts)
+        t = (job["notes"].get("title") or {}).get("text") or base
+        push_send("ตัดเสร็จแล้ว", f"{t} · เปิดดูใน editor ได้เลย", "/?open=1")
     else:
         job["state"] = "error"
+        if job.get("cancel"):
+            job["state"] = "cancel"
+        else:
+            push_send("ตัดคลิปพัง", f"{base} · เปิดดูรายละเอียดในแอป", "/")
+    job["now"] = time.time()
     broadcast("job", job)
 
 
@@ -371,6 +533,11 @@ def run_render(opts):
     p.wait()
     state["render"] = None
     state["rstate"], state["rout"] = ("done" if p.returncode == 0 else "error"), result
+    if p.returncode == 0 and not opts.get("preview"):
+        push_send("เรนเดอร์เสร็จแล้ว", os.path.basename(result or "") + " · กดเพื่อโหลด/บันทึกลงรูป", "/m")
+    elif p.returncode and not state.get("rcancel"):
+        push_send("เรนเดอร์พัง", "เปิด editor ดูรายละเอียด", "/")
+    state["rcancel"] = False
     broadcast("render", {"line": "", "state": "done" if p.returncode == 0 else "error",
                          "output": result, "code": p.returncode})
 
@@ -402,7 +569,8 @@ def auth_token():
 
 
 APP_ICONS = {"/apple-touch-icon.png": "icon-180.png", "/apple-touch-icon-precomposed.png": "icon-180.png",
-             "/icon-180.png": "icon-180.png", "/icon-512.png": "icon-512.png", "/manifest.webmanifest": None}
+             "/icon-180.png": "icon-180.png", "/icon-512.png": "icon-512.png", "/manifest.webmanifest": None,
+             "/sw.js": "sw.js"}  # service worker (แจ้งเตือน) — ไม่มีข้อมูลลับ โหลดได้ไม่ต้อง PIN
 MANIFEST = {"name": "ClipCut", "short_name": "ClipCut", "start_url": "/", "display": "standalone",
             "background_color": "#060606", "theme_color": "#10b981",
             "icons": [{"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
@@ -593,19 +761,35 @@ class H(BaseHTTPRequestHandler):
             return self.send_file(os.path.join(UI, "home.html"))
         if path in ("/edit", "/index.html"):
             return self.send_file(os.path.join(UI, "index.html"))
-        if path in ("/app.js", "/app.css", "/home.js", "/player.js", "/theme.js"):
+        if path in ("/app.js", "/app.css", "/home.js", "/player.js", "/theme.js", "/jobpill.js"):
             return self.send_file(os.path.join(UI, path[1:]))
         if path == "/favicon.ico":
             return self.send_file(os.path.join(UI, "clipcut.ico"), cache=True)
         if path == "/api/ping":
             return self.send_json({"ok": True, "app": "clipcut"})
+        if path == "/api/job":
+            return self.send_json(dict(job, now=time.time()))
+        if path == "/api/trash":
+            import library
+            library.purge_old(projects_root()); purge_old_projects()
+            return self.send_json(trash_listing())
+        if path == "/api/jobimg":  # รูป/GIF ที่ได้ระหว่างตัด (โชว์ในหน้ารอ) — เฉพาะในโฟลเดอร์งาน/คลัง GIF
+            import gif_lib
+            q = os.path.realpath(parse_qs(url.query).get("path", [""])[0])
+            okroot = any(q.startswith(os.path.realpath(r) + os.sep) for r in (projects_root(), gif_lib.ROOT))
+            return self.send_file(q, cache=True) if okroot and os.path.isfile(q) else self.send_error(404)
+        if path == "/api/push/key":
+            try:
+                return self.send_json({"ok": True, "key": vapid_public()})
+            except Exception as ex:
+                return self.send_json({"ok": False, "error": str(ex)})
         if path == "/api/home":
             ps = [project_info(p) for p in recent_list()]
             return self.send_json({"projects": ps, "root": projects_root(),
                                    "staged": state["staged"], "job": job, "current": EDIT})
         if path == "/api/thumb":
             q = parse_qs(url.query).get("edit", [""])[0]
-            ok = any(os.path.normcase(q) == os.path.normcase(p) for p in recent_list())
+            ok = any(os.path.normcase(q) == os.path.normcase(p) for p in recent_list() + [x["edit"] for x in trashed_projects()])
             return self.send_file(thumb_path(q)) if ok else self.send_error(404)
         if path == "/api/edit":
             if not EDIT:
@@ -713,11 +897,60 @@ class H(BaseHTTPRequestHandler):
             return self.send_json({"ok": True})
         if path == "/api/job/cancel":
             if job.get("pid"):
+                job["cancel"] = True
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(job["pid"])], capture_output=True)
+            return self.send_json({"ok": True})
+        if path == "/api/job/seen":  # ปิดแถบ "ตัดเสร็จแล้ว"
+            job["seen"] = True
+            broadcast("job", dict(job, now=time.time()))
             return self.send_json({"ok": True})
         if path == "/api/open":
             open_project(body["edit"])
+            if job.get("edit") and os.path.normcase(job["edit"]) == os.path.normcase(body["edit"]) and not job.get("seen"):
+                job["seen"] = True
+                broadcast("job", dict(job, now=time.time()))
             return self.send_json({"ok": True})
+        if path == "/api/push/sub":
+            sub = body.get("sub") or {}
+            if not str(sub.get("endpoint", "")).startswith("https://"):
+                return self.send_json({"ok": False, "error": "subscription เสีย"}, 400)
+            with rlock:
+                _jsave(PUSH_SUBS, [x for x in _jload(PUSH_SUBS) if x.get("endpoint") != sub["endpoint"]] + [sub])
+            if body.get("test"):
+                push_send("ClipCut", "แจ้งเตือนใช้ได้แล้ว — ตัด/เรนเดอร์เสร็จจะเด้งบอกตรงนี้", "/")
+            return self.send_json({"ok": True})
+        if path == "/api/push/unsub":
+            with rlock:
+                _jsave(PUSH_SUBS, [x for x in _jload(PUSH_SUBS) if x.get("endpoint") != body.get("endpoint")])
+            return self.send_json({"ok": True})
+        if path == "/api/trash/add":  # ลบในแอป = เข้าถังขยะ (ไฟล์ไม่ขยับ)
+            import library
+            ok = (library.trash(projects_root(), str(body.get("path"))) if body.get("kind") == "clip"
+                  else bool(project_trash(str(body.get("path")))) or True)
+            broadcast("library" if body.get("kind") == "clip" else "projects", {})
+            return self.send_json({"ok": ok})
+        if path == "/api/trash/restore":
+            import library
+            ok = (library.trash(projects_root(), str(body.get("path")), False) if body.get("kind") == "clip"
+                  else bool(project_trash(str(body.get("path")), False)) or True)
+            broadcast("library" if body.get("kind") == "clip" else "projects", {})
+            return self.send_json({"ok": ok})
+        if path == "/api/trash/purge":  # ลบถาวร (ไฟล์ไปถังขยะ Windows) · items ว่าง = ล้างถังทั้งหมด
+            import library
+            T = trash_listing()
+            items = body.get("items") or [{"kind": "clip", "path": c["path"]} for c in T["clips"]] + \
+                [{"kind": "project", "path": x["edit"]} for x in T["projects"]]
+            inclip = {os.path.normcase(c["path"]) for c in T["clips"]}
+            inproj = {os.path.normcase(x["edit"]) for x in T["projects"]}
+            n = 0
+            for it in items:  # ลบได้เฉพาะของที่อยู่ในถังแล้วเท่านั้น
+                q = os.path.normcase(str(it.get("path")))
+                if it.get("kind") == "clip" and q in inclip:
+                    n += bool(library.remove(projects_root(), it["path"]))
+                elif it.get("kind") == "project" and q in inproj:
+                    n += bool(project_purge(it["path"]))
+            broadcast("library", {}); broadcast("projects", {})
+            return self.send_json({"ok": True, "n": n})
         if path == "/api/stage":  # เปิดซ้ำโดยลากไฟล์ใส่ไอคอน → ส่งไฟล์มาให้ตัวที่เปิดอยู่
             state["staged"] = body.get("path")
             broadcast("stage", {"path": state["staged"]})
@@ -771,14 +1004,14 @@ class H(BaseHTTPRequestHandler):
             import library
             library.update(projects_root(), str(body.get("path")), title=str(body.get("title") or "").strip()[:60] or "คลิป", by="user")
             return self.send_json({"ok": True})
-        if path == "/api/library/delete":
+        if path == "/api/library/delete":  # รุ่นเก่า → เข้าถังขยะแอป
             import library
-            return self.send_json({"ok": library.remove(projects_root(), str(body.get("path")))})
-        if path == "/api/forget":
-            e = body.get("edit") or ""
-            save_recent([p for p in _jload(RECENT) if os.path.normcase(p) != os.path.normcase(e)])
-            with rlock:
-                _jsave(HIDDEN, list(dict.fromkeys(_jload(HIDDEN) + [e]))[-200:])
+            ok = library.trash(projects_root(), str(body.get("path")))
+            broadcast("library", {})
+            return self.send_json({"ok": ok})
+        if path == "/api/forget":  # รุ่นเก่า → เข้าถังขยะแอป
+            project_trash(str(body.get("edit") or ""))
+            broadcast("projects", {})
             return self.send_json({"ok": True})
         if path == "/api/pixel/new":  # วาดไอคอนใหม่จาก editor (AI วาดตาราง 16×16 → เข้าคลังกลาง)
             import re as _re
@@ -817,6 +1050,7 @@ class H(BaseHTTPRequestHandler):
             return self.send_json({"ok": True})
         if path == "/api/render/cancel":
             if state["render"]:
+                state["rcancel"] = True
                 state["render"].kill()
             return self.send_json({"ok": True})
         if path == "/api/play":

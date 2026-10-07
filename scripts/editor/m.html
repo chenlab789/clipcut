@@ -61,6 +61,7 @@
   <a href="/" class="ib" title="หน้าแรก"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 6-6 6 6 6"/></svg></a>
   <div class="ttl" id="ttl">ClipCut</div>
   <span class="status" id="st"></span>
+  <button class="ib" id="bBell" title="แจ้งเตือนเมื่อเรนเดอร์/ตัดเสร็จ"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></button>
 </header>
 <main class="wrap">
   <div class="seg2"><button id="mLive" class="on">พรีวิวสด (มีเอฟเฟกต์)</button><button id="mFile">ไฟล์ที่เรนเดอร์</button></div>
@@ -80,6 +81,8 @@
   <button class="primary" id="bRender">เรนเดอร์จริง</button>
 </div>
 <div class="toast" id="toast"></div>
+<script>window.CC_PILL_TOP = true;</script>
+<script src="/jobpill.js"></script>
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
@@ -198,12 +201,16 @@ async function render(preview) {
   const r = await post("/api/render", { preview });
   if (r.ok === false) return toast(r.error || "เรนเดอร์ไม่ได้");
   $("#prog").classList.add("on"); $("#bTest").disabled = $("#bRender").disabled = true;
+  const t0 = Date.now();
+  if (CC.push.state() === "on") toast("ออกจากหน้านี้ได้ เสร็จแล้วจะเด้งแจ้งเตือน");
   const poll = async () => {
     const s = await fetch("/api/render/status").then((x) => x.json()).catch(() => null);
     if (s) {
       const last = [...s.log].reverse().find((l) => /%|เรนเดอร์|วาด/.test(l)) || "";
       const pc = (last.match(/([\d.]+)%/) || [])[1];
-      $("#plog").textContent = s.state === "running" ? "กำลังเรนเดอร์ " + (pc ? Math.round(pc) + "%" : "…") : s.state === "done" ? "เสร็จแล้ว" : "เรนเดอร์พัง";
+      const left = pc > 3 ? (Date.now() - t0) / 1000 * (100 - pc) / pc : null;
+      const eta = left == null ? "" : left < 20 ? " · อีกแป๊บเดียว" : left < 60 ? " · เหลือไม่ถึงนาที" : ` · เหลืออีก ~${Math.ceil(left / 60)} นาที`;
+      $("#plog").textContent = s.state === "running" ? "กำลังเรนเดอร์ " + (pc ? Math.round(pc) + "%" + eta : "…") : s.state === "done" ? "เสร็จแล้ว" : "เรนเดอร์พัง";
       $("#pbar").style.width = (s.state === "done" ? 100 : +pc || 3) + "%";
       if (s.state !== "running" && !s.running) {
         $("#bTest").disabled = $("#bRender").disabled = false;
@@ -231,6 +238,13 @@ $("#mLive").onclick = () => setMode("live");
 $("#mFile").onclick = () => setMode("file");
 $("#bTest").onclick = () => render(true);
 $("#bRender").onclick = () => render(false);
+function paintBell() { $("#bBell").style.color = CC.push.state() === "on" ? "var(--accent)" : ""; }
+$("#bBell").onclick = async () => {
+  if (CC.push.state() === "on") { if (confirm("ปิดแจ้งเตือนบนเครื่องนี้?")) await CC.push.disable(); }
+  else if (await CC.push.enable()) toast("เปิดแจ้งเตือนแล้ว");
+  paintBell();
+};
+paintBell();
 load().then(() => setMode("live"));
 </script>
 </body>

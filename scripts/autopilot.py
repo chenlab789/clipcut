@@ -74,6 +74,24 @@ def prog(p):
     print(f"PROG {int(p)}", flush=True)
 
 
+def note(k, **kv):
+    """ของที่ได้ระหว่างทาง → หน้ารอตัดโชว์ทันที (k = title/cmds/cut/photos/gifs/count · doing = กำลังทำอะไรอยู่)"""
+    print("NOTE " + json.dumps(dict(k=k, **kv), ensure_ascii=False), flush=True)
+
+
+def steps_for(opts, multi):
+    """ชื่อขั้นตอนของงานนี้ (ตามตัวเลือกที่เปิด) — หน้าเว็บโชว์ตามนี้"""
+    ex = opts.get("mode") == "explainer"
+    s = ["รวมคลิป + ถอดเสียง" if multi else "ถอดเสียง",
+         "AI อ่านบท ตั้งชื่อ แก้คำ" + (" หาคำสั่งเสียง" if opts.get("voice", 1) else ""),
+         "ตัดช่วงเงียบ" if opts.get("cut") else "เตรียมคลิป"]
+    if ex:
+        return s + ["AI กำกับฉาก + วาดไอคอน", "AI หาจุดที่ควรซูม"]
+    has = [n for k, n in (("broll", "ภาพประกอบ"), ("gif", "GIF"), ("sfx", "เสียง"), ("fx", "ซูม"), ("cam", "กล้องตามหน้า"))
+           if opts.get(k)]
+    return s + ["AI วางเอฟเฟกต์ตามบท", "ใส่ " + " · ".join(has) if has else "จัดลง timeline"]
+
+
 def claude_exe():
     p = os.path.join(os.environ.get("APPDATA", ""), "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")
     return p if os.path.exists(p) else (shutil.which("claude.exe") or shutil.which("claude") or "claude")
@@ -350,6 +368,7 @@ def main():
     json.dump(opts, open(os.path.join(outdir, "autopilot.opts.json"), "w", encoding="utf-8"), ensure_ascii=False)
     os.environ.setdefault("CLIPCUT_JOB", f"{base}@{int(__import__('time').time())}")  # ลูก (pixel_gen/focus) จดรวมงานนี้
 
+    print("STEPS " + json.dumps(steps_for(opts, len(multi) > 1), ensure_ascii=False), flush=True)
     # 1 ถอดเสียง (หลายคลิป = รวมเป็นคลิปเดียวก่อน — multiclip.py)
     step(1, "รวมคลิป + ถอดเสียง" if len(multi) > 1 else "ถอดเสียง"); prog(2)
     clips = None
@@ -375,11 +394,21 @@ def main():
     # 2 AI รอบแรก: แก้คำ / สไตล์ / keep / เพลง
     step(2, "AI ดูคลิป แก้คำเพี้ยน เลือกสไตล์ซับ")
     sheet = contact_sheet(src, os.path.join(outdir, "_frames.jpg"))
+    note("talk", n=len(segs), words=sum(len(x["text"]) for x in segs))
+    note("doing", text="AI อ่านบทแล้วดูภาพ ตั้งชื่องาน แก้คำเพี้ยน")
     p1 = pass1(segs, sheet, opts)
+    if p1.get("title"):
+        note("title", text=str(p1["title"]).strip()[:60])
     json.dump(p1, open(os.path.join(outdir, "_ai_pass1.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     # คำสั่งเสียงตามบริบท ("เอารูปกุ้งขึ้นตรงนี้" / "ซูมเข้าขวด") — หาจากบทดิบก่อนแก้คำ (เคยโดนแก้ "ขึ้นรูปอ่า…ส้ม" → "ซูมรูปขวด")
     import voicecmd
+    if opts.get("voice", 1):
+        note("doing", text="หาประโยคที่สั่งตัดต่อ")
     vcmds = voicecmd.detect(segs, ai, list(SFX_DESC)) if opts.get("voice", 1) else []
+    if opts.get("voice", 1):
+        note("cmds", items=[c["label"] for c in vcmds])
+    if any(d["action"] == "zoom" for c in vcmds for d in c["do"]):
+        note("doing", text="AI ดูภาพหาของที่สั่งให้ซูม")
     # ซูม: หาของ+จังหวะก่อนตัด dead air — สั่งล่วงหน้า ("ตอนกินน้ำ") เป็นช่วงเงียบ ต้องกันไม่ให้โดนตัด
     vspots = voicecmd.locate(vcmds, src, os.path.join(outdir, "_focus"), ai) if vcmds else {}
     nfix = 0
@@ -423,6 +452,7 @@ def main():
             print(f"  ช่วงสาธิต {r[0]} ที่ {r[1]:.0f} วิ ({r[2]:.1f} วิ)", flush=True)
         speeds1 = speedup.to_cut1(speeds, keep)
     print("  กำลังตัดคลิป (คลิปยาว/หลายคลิปใช้เวลาหลายนาที)…", flush=True); prog(45)
+    note("doing", text="ตัดต่อไฟล์วิดีโอ")
     if speeds1:  # cut1 = ความเร็วปกติทุกช่วง (เก็บไว้ให้ editor สลับเร่ง/ปกติ/ตัด) → cut = เร่งแล้ว
         cut1 = os.path.join(outdir, base + ".cut1.mp4")
         cc.cut_video(src, keep, cut1)
@@ -433,6 +463,7 @@ def main():
         cc.cut_video(src, keep, cut)
     orig, kept = cc.probe_dur(src), cc.probe_dur(cut)
     print(f"  {orig:.0f} วิ → {kept:.0f} วิ (ตัดออก {orig - kept:.0f} วิ)", flush=True)
+    note("cut", a=round(orig, 1), b=round(kept, 1))
     E = edit_init.build(seg_json, cut, style, keep, opts["aspect"], cc.probe_wh(src))
     if p1.get("title"):  # ชื่องานตามเนื้อหา (หน้าแรก/คลังคลิป/ชื่อไฟล์ตอนโหลด)
         E["title"] = str(p1["title"]).strip()[:60]
@@ -485,6 +516,7 @@ def main():
         import smartcam
         peaks = smartcam.voice_peaks(cut) if opts.get("fx") else []
         E["roles"] = roles(subs_for_ai, p1.get("chen"))
+        note("doing", text="AI อ่านบทแล้ววางเสียง ภาพ GIF ซูม ตามจังหวะ")
         plan = pass2(subs_for_ai, E["duration"], opts, opts["aspect"] == "9x16", peaks, E["roles"])
         json.dump(plan, open(os.path.join(outdir, "_ai_pass2.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     prog(85)
@@ -506,6 +538,7 @@ def main():
     if wants:
         import pixel_gen
         print(f"  วาดไอคอนใหม่ {len(wants)} ตัว: {', '.join(wants)}", flush=True)
+        note("doing", text=f"AI วาดไอคอนพิกเซลใหม่ {len(wants)} ตัว")
         pixel_gen.ensure(wants)
     pxn = pixel.names()
     for it in plan:
@@ -557,6 +590,7 @@ def main():
     if opts.get("fx") or opts.get("cam"):  # ซูมอัจฉริยะ: กล้องตามหน้า + ซูมไปของที่ยก + ซูมช้ากันนิ่ง + จุดซูมของทุกเอฟเฟกต์
         import smartcam
         prog(90)
+        note("doing", text="จัดกล้องตามหน้า + ซูม")
         cuts, acc = [], 0.0
         for s0, e0 in keep:
             acc += e0 - s0; cuts.append(round(speedup.out_time(acc, speeds1), 3))
@@ -579,11 +613,16 @@ def main():
             while any(x.get("id") == f"{pre}{n}" for x in E["items"]):
                 n += 1
             return f"{pre}{n}"
+        note("doing", text="ทำตามคำสั่งเสียง (หารูปจริง / ซูม)")
         try:
             voicecmd.apply(E, vcmds, outdir, src, lambda t: speedup.out_time(cc.remap(t, keep), speeds1), set(SFX_DESC), vid, ai, vspots)
         except Exception as ex:
             print(f"  ! ทำตามคำสั่งเสียงไม่ได้: {ex}", flush=True)
+    ph = [os.path.join(outdir, x["src"]) for x in E["items"] if x.get("cmd") and x["track"] == "broll" and x.get("src")]
+    if ph:
+        note("photos", imgs=ph[:6])
     if opts.get("gif"):
+        note("doing", text="ใส่ GIF / meme")
         try:
             place_gifs(E, plan, outdir, opts)
         except Exception as ex:
@@ -591,6 +630,15 @@ def main():
     declutter(E)
     ccfx.save_edit(edit, E)
     cnt = {t: sum(1 for x in E["items"] if x["track"] == t) for t in ccfx.TRACKS}
+    try:
+        import gif_lib
+        G = gif_lib.lib()
+        gs = list(dict.fromkeys(x["gif"] for x in E["items"] if x["track"] == "gif" and x.get("gif") in G))
+        if gs:
+            note("gifs", imgs=[os.path.join(gif_lib.ROOT, G[g]["file"]) for g in gs[:8]], n=cnt["gif"])
+    except Exception:
+        pass
+    note("count", **{k: cnt[k] for k in ("sub", "broll", "gif", "sfx", "fx")})
     print(f"  ซับ {cnt['sub']} · ภาพ {cnt['broll']} · GIF {cnt['gif']} · อีโมจิ {cnt['emoji']} · เสียง {cnt['sfx']} · เอฟเฟกต์ {cnt['fx']}"
           + (f" (ข้าม {bad})" if bad else ""), flush=True)
     n, tin, tout, usd = usage_summary(os.environ.get("CLIPCUT_JOB", ""))

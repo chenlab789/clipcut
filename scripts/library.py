@@ -13,6 +13,7 @@ import subprocess
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi")
 DERIVED = re.compile(r"\.(cut|proxy|gap|s[0-9a-f]+)\b|_(edit|preview|explainer)_\d+x\d+|\.raw\.", re.I)
+TRASH_DAYS = 30  # อยู่ในถังขยะครบเท่านี้ = ลบจริง (ไฟล์ไปถังขยะ Windows อีกชั้น)
 _lock = threading.Lock()
 _name_q, _naming = [], [False]
 
@@ -158,20 +159,55 @@ def _dedupe(L):
 
 
 def unnamed(root):
-    return [k for k, v in load(root).items() if not v.get("by") and os.path.exists(k)]
+    return [k for k, v in load(root).items() if not v.get("by") and not v.get("trashed") and os.path.exists(k)]
 
 
-def listing(root):
+def listing(root, trashed=False):
+    """คลิปในคลัง · trashed=True = ในถังขยะแอป (ไฟล์ยังอยู่ที่เดิม แค่ซ่อน)"""
     L = load(root)
     out = []
     for k, v in L.items():
-        if os.path.exists(k):
+        if os.path.exists(k) and bool(v.get("trashed")) == trashed:
             out.append(dict(v, path=k, name=os.path.basename(k), uses=[u for u in v.get("uses", []) if os.path.exists(u)]))
     return sorted(out, key=lambda x: -(x.get("added") or 0))
 
 
+def trash(root, path, on=True):
+    """ลบในแอป = ย้ายเข้าถังขยะแอป (ไฟล์ไม่ขยับ) · on=False = กู้คืน"""
+    with _lock:
+        L = load(root)
+        k = _key(L, path)
+        if not k:
+            return False
+        if on:
+            L[k]["trashed"] = time.time()
+        else:
+            L[k].pop("trashed", None)
+        save(root, L)
+    return True
+
+
+def purge_old(root):
+    """ในถังขยะครบ TRASH_DAYS วัน → ลบจริง"""
+    old = [k for k, v in load(root).items() if v.get("trashed") and time.time() - v["trashed"] > TRASH_DAYS * 86400]
+    for k in old:
+        remove(root, k)
+    return len(old)
+
+
+def recycle(path):
+    """ส่งไฟล์/โฟลเดอร์ไปถังขยะ Windows (กู้คืนได้) — ห้ามลบตรง"""
+    fn = "DeleteDirectory" if os.path.isdir(path) else "DeleteFile"
+    subprocess.run(["powershell", "-NoProfile", "-Command",
+                    f"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::{fn}("
+                    "$env:CC_DEL, 'OnlyErrorDialogs', 'SendToRecycleBin')"],
+                   env=dict(os.environ, CC_DEL=path), capture_output=True, timeout=120,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return not os.path.exists(path)
+
+
 def remove(root, path):
-    """เอาออกจากคลัง + ไฟล์ไปถังขยะ (กู้คืนได้)"""
+    """ลบถาวร: เอาออกจากคลัง + ไฟล์ไปถังขยะ Windows (กู้คืนได้จากถัง Windows)"""
     with _lock:
         L = load(root)
         k = _key(L, path)
@@ -179,11 +215,10 @@ def remove(root, path):
             return False
         L.pop(k); save(root, L)
     if os.path.exists(k):
-        subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile("
-                        "$env:CC_DEL, 'OnlyErrorDialogs', 'SendToRecycleBin')"],
-                       env=dict(os.environ, CC_DEL=k), capture_output=True, timeout=60,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        recycle(k)
+        for x in (k + ".segments.json", os.path.join(os.path.dirname(k), "_thumbs", os.path.basename(k) + ".jpg")):
+            if os.path.exists(x):
+                recycle(x)
     return True
 
 

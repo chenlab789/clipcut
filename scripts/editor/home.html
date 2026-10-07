@@ -71,21 +71,88 @@
   .sum li span:last-child { text-align: right; }
   .go { width: 100%; padding: 13px; font-size: 15px; margin-top: 8px; }
 
-  /* ---------- 3. กำลังทำ ---------- */
-  .job { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; }
-  .job > div { padding: 24px 26px; }
-  .job > div + div { border-left: 1px solid var(--line); background: var(--panel2); display: flex; flex-direction: column; }
-  .job h3 { margin: 0 0 4px; font-size: 17px; }
-  .bar { height: 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; margin: 14px 0 18px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  /* ---------- 3. กำลังทำ: ขั้นตอนจริง + ของที่ได้ระหว่างทาง + เวลาเหลือ ---------- */
+  .job { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); overflow: hidden; }
+  .jMain { padding: 22px 24px; display: flex; flex-direction: column; }
+  .jSide { padding: 22px 24px; border-left: 1px solid var(--line); background: var(--panel2); display: flex; flex-direction: column; min-width: 0; }
+  .jHead { display: flex; gap: 14px; align-items: center; }
+  .jHead img { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; background: #0b0c0c; flex: 0 0 64px; }
+  .jHead h3 { margin: 0 0 3px; font-size: 18px; letter-spacing: -.2px; }
+  .jHead .muted { font-size: 12.5px; }
+  .jProg { margin: 18px 0 14px; }
+  .bar { height: 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .6s; position: relative; }
+  .job.run .bar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+    animation: sweep 1.6s linear infinite; }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .jNums { display: flex; justify-content: space-between; margin-top: 7px; font-size: 13px; font-variant-numeric: tabular-nums; }
   .steps { list-style: none; padding: 0; margin: 0; }
-  .steps li { padding: 8px 0; display: flex; gap: 12px; align-items: center; color: var(--muted); }
-  .steps li .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); flex: 0 0 18px; }
+  .steps li { padding: 7px 0; display: grid; grid-template-columns: 18px 1fr; column-gap: 12px; align-items: center; color: var(--muted); }
+  .steps li .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); }
   .steps li.now { color: var(--text); font-weight: 600; } .steps li.now .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
   .steps li.ok { color: var(--text); } .steps li.ok .dot { background: var(--accent); border-color: var(--accent); }
+  .steps li small { grid-column: 2; color: var(--accent); font-weight: 500; font-size: 12px; margin-top: 2px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  pre.jlog { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-height: 220px; max-height: 340px; overflow: auto;
+  .jBtns { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; flex-wrap: wrap; }
+  .jBtns button { display: flex; align-items: center; gap: 6px; }
+  .feed { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+  .fi { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; animation: popin .35s ease; }
+  @keyframes popin { from { opacity: 0; transform: translateY(6px); } }
+  .fi .k { color: var(--muted); font-size: 11.5px; font-weight: 600; margin-bottom: 5px; }
+  .fi .big { font-size: 16px; font-weight: 700; }
+  .fi .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .fi .tags span { padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 12.5px; font-weight: 600; }
+  .fi .tags span.n { background: var(--panel2); color: var(--text); font-weight: 500; }
+  .fi .cutbar { height: 8px; border-radius: 5px; background: color-mix(in srgb, #ef4444 35%, var(--line)); overflow: hidden; margin: 8px 0 2px; }
+  .fi .cutbar i { display: block; height: 100%; background: var(--accent); }
+  .fi .imgs { display: flex; gap: 6px; overflow-x: auto; }
+  .fi .imgs img, .fi .imgs video { height: 74px; border-radius: 8px; background: #000; flex: 0 0 auto; }
+  .fi.wait { color: var(--muted); display: flex; align-items: center; gap: 10px; border-style: dashed; }
+  .fi.wait i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+  .jDet { margin-top: 12px; } .jDet summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+  pre.jlog { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; max-height: 260px; overflow: auto;
     font: 12px/1.5 Consolas, monospace; color: #9aa4a2; white-space: pre-wrap; margin: 8px 0 0; }
+
+  /* ---------- กรอบรอโหลด ---------- */
+  .sk { position: relative; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .sk::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 6%, transparent), transparent); animation: sweep 1.3s infinite; }
+  .sk.lcs { aspect-ratio: 1 / 1.28; } .sk.pcs { aspect-ratio: 1 / 1.05; border-radius: 14px; }
+
+  /* ---------- การ์ดกำลังอัป ---------- */
+  .lc.up { cursor: default; }
+  .lc.up .th video { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .55; }
+  .lc .upr { position: absolute; inset: 0; display: grid; place-items: center; }
+  .lc .upr div { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center;
+    background: conic-gradient(var(--accent) calc(var(--p) * 1%), rgba(255,255,255,.18) 0); }
+  .lc .upr b { width: 50px; height: 50px; border-radius: 50%; background: rgba(0,0,0,.72); color: #fff; display: grid; place-items: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- ถังขยะ + เลิกทำ ---------- */
+  .hb { display: flex; align-items: center; gap: 6px; }
+  .hb .cnt { min-width: 18px; height: 18px; border-radius: 9px; background: var(--line); font-size: 11px; display: grid; place-items: center; padding: 0 5px; }
+  .hb .cnt:empty { display: none; }
+  .hb.on { color: var(--accent); }
+  .modal { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 20px; }
+  .sheet { width: min(980px, 100%); max-height: min(86vh, 900px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .mHead { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .mHead h2 { margin: 0; font-size: 17px; }
+  .mBody { padding: 16px 18px 22px; overflow: auto; }
+  .mBody h4 { margin: 4px 0 10px; font-size: 13px; color: var(--muted); }
+  .tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tc { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .tc .th { aspect-ratio: 4 / 3; background: #0b0c0c; position: relative; }
+  .tc .th img { width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(.6); opacity: .8; }
+  .tc .left { position: absolute; top: 7px; left: 7px; padding: 2px 7px; border-radius: 6px; font-size: 11px; background: rgba(0,0,0,.72); color: #fff; }
+  .tc .left.soon { background: #b91c1c; }
+  .tc .body { padding: 9px 10px 10px; }
+  .tc .ttl { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+  .tc .row { display: flex; gap: 6px; } .tc .row button { flex: 1; padding: 6px 0; font-size: 12.5px; }
+  .tc .row .danger { color: #ff8a8a; }
+  .undo { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 70; display: flex; align-items: center; gap: 14px;
+    padding: 10px 10px 10px 16px; border-radius: 12px; background: var(--text); color: var(--bg); box-shadow: 0 10px 30px rgba(0,0,0,.4); max-width: calc(100vw - 24px); }
+  .undo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .undo button { background: transparent; border: 0; color: var(--accent-d); font-weight: 700; white-space: nowrap; }
+  :root[data-theme="light"] .undo button { color: #6ee7b7; }
 
   /* ---------- 3b. คลังคลิป ---------- */
   .library { margin-top: 40px; }
@@ -139,13 +206,19 @@
   @media (max-width: 900px) {
     .opts, .job { grid-template-columns: 1fr; }
     .optMain { border-right: 0; border-bottom: 1px solid var(--line); }
-    .job > div + div { border-left: 0; border-top: 1px solid var(--line); }
+    .jSide { border-left: 0; border-top: 1px solid var(--line); }
+    .tgrid { grid-template-columns: 1fr 1fr; }
+    .hb .t { display: none; }
     .grid2, .modes, .flow { grid-template-columns: 1fr; }
     .drop { grid-template-columns: 1fr; text-align: center; justify-items: center; }
   }
   /* มือถือ: ไม่มีปุ่มเปิดโฟลเดอร์/เส้นทางในคอม · ช่องลากวางเป็นปุ่มเลือกคลิป */
   body.mobile [data-a="dir"], body.mobile .foot, body.mobile .flow { display: none !important; }
   body.mobile .wrap { padding: 16px 14px 48px; }
+  body.mobile .jMain, body.mobile .jSide { padding: 18px 16px; }
+  body.mobile .modal { padding: 0; place-items: end stretch; }
+  body.mobile .sheet { border-radius: 16px 16px 0 0; max-height: 92vh; }
+  body.mobile .top #btnTheme { display: none; }
   body.mobile .drop { padding: 22px 18px; gap: 12px; }
   body.mobile .drop .big { font-size: 18px; }
   body.mobile .pgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -167,6 +240,8 @@
 <header class="top">
   <div class="brand"><span class="logo"></span>ClipCut</div>
   <div class="spacer"></div>
+  <button class="ghost hb" id="btnBell" title="แจ้งเตือนเมื่อตัด/เรนเดอร์เสร็จ"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="t" id="bellTx">แจ้งเตือน</span></button>
+  <button class="ghost hb" id="btnTrash" title="ถังขยะ"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg><span class="t">ถังขยะ</span><span class="cnt" id="tCnt"></span></button>
   <button class="ghost" id="btnTheme" title="สลับธีมสว่าง/มืด">ธีมสว่าง</button>
   <button id="toEditor" style="display:none">กลับไป editor</button>
 </header>
@@ -252,14 +327,23 @@
 
   <!-- 3. กำลังทำ -->
   <section id="vJob" class="card job hidden">
-    <div>
-      <h3 id="jTitle">กำลังทำ</h3>
-      <div class="muted" id="jSub"></div>
-      <div class="bar"><i id="jBar"></i></div>
+    <div class="jMain">
+      <div class="jHead"><img id="jCover" alt=""><div style="min-width:0"><h3 id="jTitle">กำลังทำ</h3><div class="muted" id="jSub"></div></div></div>
+      <div class="jProg"><div class="bar"><i id="jBar"></i></div><div class="jNums"><b id="jPct">0%</b><span class="muted" id="jEta"></span></div></div>
       <ul class="steps" id="jSteps"></ul>
-      <div style="display:flex;gap:8px;margin-top:18px"><button class="ghost" id="jCancel">ยกเลิก</button><button id="jBack" class="hidden">กลับ</button></div>
+      <div class="jBtns">
+        <button class="primary hidden" id="jOpen">เปิด editor</button>
+        <button class="ghost" id="jAway" title="งานยังเดินต่อ ดูความคืบหน้าได้ที่แถบล่างจอ">ไปทำอย่างอื่นก่อน</button>
+        <button class="ghost" id="jBell">แจ้งเตือนเมื่อเสร็จ</button>
+        <span class="spacer"></span>
+        <button class="ghost" id="jCancel">ยกเลิก</button><button id="jBack" class="hidden">กลับ</button>
+      </div>
     </div>
-    <div><div class="lbl">บันทึกการทำงาน</div><pre class="jlog" id="jLog"></pre></div>
+    <div class="jSide">
+      <div class="lbl">ที่ได้แล้ว</div>
+      <div class="feed" id="jFeed"></div>
+      <details class="jDet" id="jDet"><summary>รายละเอียดการทำงาน</summary><pre class="jlog" id="jLog"></pre></details>
+    </div>
   </section>
 
   <!-- 3b. คลังคลิป: อัปเก็บไว้ก่อน ตัดทีหลัง (ตัดซ้ำได้ ต้นฉบับไม่โดนแตะ) -->
@@ -267,7 +351,7 @@
     <div class="secHead"><h2>คลังคลิป</h2><span class="muted" id="lCount"></span><span class="spacer"></span>
       <button class="ghost" id="libAdd" type="button">+ อัปเก็บไว้ก่อน</button></div>
     <input type="file" id="pickLib" accept="video/*" multiple hidden>
-    <div class="lgrid" id="library"></div>
+    <div class="lgrid" id="library"><div class="sk lcs"></div><div class="sk lcs"></div><div class="sk lcs"></div><div class="sk lcs"></div></div>
     <div class="lbar hidden" id="lbar"><span id="lSel"></span><button class="ghost" id="lClear" type="button">ยกเลิก</button>
       <button class="primary" id="lCut" type="button">ตัดคลิปที่เลือก</button></div>
   </section>
@@ -275,10 +359,18 @@
   <!-- 4. โปรเจกต์ -->
   <section class="projects">
     <div class="secHead"><h2>โปรเจกต์ล่าสุด</h2><span class="muted" id="pCount"></span></div>
-    <div class="pgrid" id="projects"></div>
+    <div class="pgrid" id="projects"><div class="sk pcs"></div><div class="sk pcs"></div><div class="sk pcs"></div></div>
   </section>
   <div class="foot"><span id="root"></span><a id="openRoot">เปิดโฟลเดอร์</a></div>
 </main>
+<div class="modal hidden" id="trash"><div class="sheet">
+  <div class="mHead"><h2>ถังขยะ</h2><span class="muted" id="tInfo"></span><span class="spacer"></span>
+    <button class="ghost" id="tEmpty" type="button">ล้างถังขยะ</button><button class="ib" id="tClose" type="button" title="ปิด"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="mBody" id="tBody"></div>
+</div></div>
+<div class="undo hidden" id="undo"><span id="undoTx"></span><button id="undoBtn" type="button">เลิกทำ</button></div>
+<script>window.CC_PILL_SELF = true;</script>
+<script src="/jobpill.js"></script>
 <script src="/home.js"></script>
 </body>
 </html>

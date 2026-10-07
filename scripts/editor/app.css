@@ -137,7 +137,33 @@ video#vid { position: fixed; left: -10px; top: -10px; width: 4px; height: 4px; o
   box-shadow: 0 10px 40px rgba(0,0,0,.6); }
 .drawer.on { display: block; }
 .drawerHead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-weight: 600; }
-#log { margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto; font: 12px/1.45 Consolas, monospace; color: #b7c0be; white-space: pre-wrap; }
+#log { margin: 6px 0 0; padding: 10px 12px; max-height: 220px; overflow: auto; font: 12px/1.45 Consolas, monospace; color: #b7c0be; white-space: pre-wrap;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+/* เรนเดอร์: % + เวลาเหลือ + กำลังทำอะไร · log ดิบซ่อนใต้ "รายละเอียด" */
+.rbody { padding: 14px 16px 14px; }
+.rnums { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; }
+.rnums b { font-size: 22px; }
+.rbar { height: 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; margin: 8px 0 8px; }
+.rbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .5s; position: relative; }
+.drawer.run .rbar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent); animation: rsweep 1.6s linear infinite; }
+@keyframes rsweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.rnow { color: var(--muted); font-size: 12.5px; min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rdone { display: flex; gap: 8px; margin-top: 10px; }
+.rdone.hidden { display: none; }
+#rDet { margin-top: 10px; } #rDet summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.rdot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.drawer.run .rdot { background: var(--accent); animation: rblink 1s infinite; }
+.drawer.ok .rdot { background: var(--accent); } .drawer.bad .rdot { background: #ef4444; }
+@keyframes rblink { 50% { opacity: .3; } }
+/* เปิด editor: กรอบเทาวิบวับแทนจอว่าง จนโหลดงานเสร็จ */
+.loading { position: fixed; inset: 0; z-index: 80; background: var(--bg); display: flex; flex-direction: column; gap: 10px; padding: 10px; transition: opacity .25s; }
+.loading.off { opacity: 0; pointer-events: none; }
+.embed .loading { display: none; }
+.lrow { flex: 1; display: flex; gap: 10px; min-height: 0; }
+.lsk { position: relative; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.lsk::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 6%, transparent), transparent); animation: rsweep 1.3s infinite; }
+.lsk.top { height: 36px; } .lsk.tl { height: 200px; } .lsk.side { width: 260px; } .lsk.stage { flex: 1; display: grid; place-items: center; color: var(--muted); }
 #log a { color: var(--accent); cursor: pointer; }
 .toast { position: fixed; left: 50%; top: 58px; transform: translateX(-50%) translateY(-10px); background: #fde047; color: #111;
   padding: 7px 14px; border-radius: 8px; font-weight: 600; opacity: 0; transition: .25s; pointer-events: none; z-index: 60; }

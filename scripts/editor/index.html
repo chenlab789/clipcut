@@ -89,13 +89,22 @@
 </section>
 
 <div class="drawer" id="drawer">
-  <div class="drawerHead"><span id="drawerTitle">Render</span><div class="spacer"></div>
+  <div class="drawerHead"><span class="rdot" id="rDot"></span><span id="drawerTitle">Render</span><div class="spacer"></div>
     <button class="ghost" id="btnCancelRender">ยกเลิก</button>
     <button class="ghost" id="btnCloseDrawer">ปิด</button></div>
-  <pre id="log"></pre>
+  <div class="rbody">
+    <div class="rnums"><b id="rPct">0%</b><span class="muted" id="rEta"></span></div>
+    <div class="rbar"><i id="rBar"></i></div>
+    <div class="rnow" id="rNow">เตรียมไฟล์…</div>
+    <div class="rdone hidden" id="rDone"><button class="primary" id="rPlay">เล่นคลิป</button><button id="rDir">เปิดโฟลเดอร์</button></div>
+    <details id="rDet"><summary>รายละเอียด</summary><pre id="log"></pre></details>
+  </div>
 </div>
+<div class="loading" id="loading"><div class="lsk top"></div><div class="lrow"><div class="lsk side"></div><div class="lsk stage"><span>กำลังเปิดงาน…</span></div><div class="lsk side"></div></div><div class="lsk tl"></div></div>
 <div class="toast" id="toast"></div>
 <video id="vid" playsinline preload="auto" crossorigin="anonymous"></video>
+<script>window.CC_PILL_TOP = true;</script>
+<script src="/jobpill.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

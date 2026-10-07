@@ -21,8 +21,8 @@ opts.emoji = 0; // เลิกใช้อีโมจิแล้ว (เฉ�
 let staged = null;            // คลิปแรก (ใช้เช็คว่ามีคลิปรอทำไหม)
 let clips = [];               // [{path, name, dur, ctime, vertical}] — หลายคลิป = รวมเป็นคลิปเดียว (multiclip.py)
 // มือถือ (เข้าผ่าน tailscale) → editor แบบย่อ /m · ดูคลิปในเครื่องตัวเอง ไม่ใช่เปิดบนคอม
-const MOBILE = matchMedia("(pointer: coarse)").matches && innerWidth < 900;
-const EDITOR = MOBILE ? "/m" : "/edit";
+const MOBILE = CC.MOBILE;
+const EDITOR = CC.EDITOR;
 
 function show(v) { ["vDrop", "vOpts", "vJob"].forEach((id) => $("#" + id).classList.toggle("hidden", id !== v)); }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -99,7 +99,7 @@ $("#go").onclick = async () => {
   if (!ex && !KEYS.some((k) => opts[k])) return alert("เลือกอย่างน้อย 1 อย่าง");
   const send = ex ? { ...opts, subs: 1, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, aspect: "9x16" } : opts;
   if (clips.length > 1 && opts.kind !== "funny") send.order = "manual";
-  const b = $("#go"); if (b.disabled) return; b.disabled = true; // กันกดซ้ำ (มือถือ SSE ช้า หน้ายังไม่เปลี่ยน → กดอีกที = "กำลังทำคลิปอื่นอยู่")
+  const b = $("#go"); if (b.disabled) return; b.disabled = true; jobAway(null); // กันกดซ้ำ (มือถือ SSE ช้า หน้ายังไม่เปลี่ยน → กดอีกที = "กำลังทำคลิปอื่นอยู่")
   const r = await post("/api/job", { paths: clips.map((c) => c.path), opts: send }).catch(() => ({ ok: false, error: "ส่งงานไม่ได้" }));
   b.disabled = false;
   // เริ่มแล้ว / มีงานวิ่งอยู่ → ไปหน้าความคืบหน้าเลย ไม่ต้องรอ event
@@ -121,8 +121,9 @@ async function uploadAll(files, add) {
   if (!files.length) return alert("ไม่ใช่ไฟล์วิดีโอ");
   const grp = files.length > 1 || add ? "clips_" + new Date().toISOString().replace(/\D/g, "").slice(0, 14) : "";
   const back = add ? "vOpts" : null; show("vDrop");
+  const cards = files.map(upCard);
   for (let k = 0; k < files.length; k++) {
-    const path = await upload(files[k], grp, `${k + 1}/${files.length} `).catch((e) => { alert(e); return null; });
+    const path = await upload(files[k], grp, `${k + 1}/${files.length} `, null, cards[k]).catch((e) => { upDone(cards[k]); alert(e); return null; });
     if (path) stage(path, add || k > 0);
     if (k < files.length - 1) show("vDrop");
   }
@@ -145,38 +146,115 @@ async function holdScreen(on) {
 document.addEventListener("visibilitychange", async () => { // กลับมาหน้านี้ระหว่างอัป → ขอกันจอดับใหม่ (ระบบปล่อยเองตอนสลับแอป)
   if (uploading > 0 && document.visibilityState === "visible") { try { wake = await navigator.wakeLock?.request("screen"); } catch (err) { /* */ } }
 });
-function upload(f, grp, tag, say) {
+// การ์ดคลิปที่กำลังอัป → โผล่ในคลังทันที (ภาพจากไฟล์ในเครื่อง + วงแหวน %) · อัปเสร็จ = การ์ดจริงแทนที่
+let ups = [], upSeq = 0;
+function upCard(f) {
+  const c = { id: "up" + ++upSeq, name: f.name, size: f.size, pct: 0, url: URL.createObjectURL(f) };
+  ups.push(c); paintLib(); return c;
+}
+function upDone(c) { ups = ups.filter((x) => x !== c); try { URL.revokeObjectURL(c.url); } catch (e) { /* */ } paintLib(); }
+function upPaint(c) {
+  const el = document.getElementById(c.id); if (!el) return;
+  el.querySelector(".upr div").style.setProperty("--p", c.pct); el.querySelector(".upr b").textContent = c.pct + "%";
+}
+function upload(f, grp, tag, say, card) {
   holdScreen(true);
+  card = card || upCard(f);
   return new Promise((ok, bad) => {
     const x = new XMLHttpRequest(); x.open("POST", "/api/upload"); x.setRequestHeader("X-Filename", encodeURIComponent(f.name));
     if (grp) x.setRequestHeader("X-Group", grp);
-    x.upload.onprogress = (e) => (say || ((m) => ($("#upStat").textContent = m)))(`กำลังนำเข้า ${tag || ""}${Math.round(100 * e.loaded / e.total)}% (${(e.total / 1048576).toFixed(0)} MB)${MOBILE ? " · อย่าเพิ่งออกจากหน้านี้" : ""}`);
+    x.upload.onprogress = (e) => {
+      card.pct = Math.min(99, Math.round(100 * e.loaded / e.total)); upPaint(card);
+      (say || ((m) => ($("#upStat").textContent = m)))(`กำลังอัป ${tag || ""}${card.pct}% (${(e.total / 1048576).toFixed(0)} MB)${MOBILE ? " · อย่าเพิ่งออกจากหน้านี้" : ""}`);
+    };
     x.onload = () => { let r; try { r = JSON.parse(x.responseText); } catch (err) { r = { ok: false, error: "อัปไม่สำเร็จ" }; } r.ok ? ok(r.path) : bad(r.error); };
     x.onerror = () => bad("อัปไม่สำเร็จ (การเชื่อมต่อหลุด) — อัปใหม่อีกที");
     x.send(f);
-  }).finally(() => holdScreen(false));
+  }).then((path) => { upDone(card); loadLib(); return path; }).finally(() => holdScreen(false));
 }
 
 /* ---------- ความคืบหน้า ---------- */
+// "ไปทำอย่างอื่นก่อน" = จำว่างานนี้ (t0) ไม่ต้องเด้งหน้ารอ · ดูต่อได้จากแถบล่างจอ
+const jobAway = (t0) => { try { t0 == null ? sessionStorage.removeItem("cc.away") : sessionStorage.setItem("cc.away", String(t0)); } catch (e) { /* */ } };
+const isAway = (j) => { try { return sessionStorage.getItem("cc.away") === String(j.t0); } catch (e) { return false; } };
+let lastJob = null, autoOpen = null;
+CC.pill.hideWhen(() => !$("#vJob").classList.contains("hidden"));
 function paintJob(j) {
   if (!j || j.state === "idle") return;
-  show("vJob");
-  $("#jTitle").textContent = j.state === "done" ? "เสร็จแล้ว — กำลังเปิด editor" : j.state === "error" ? "พัง" : "กำลังทำ";
-  $("#jSub").textContent = j.name || "";
-  $("#jTitle").classList.toggle("err", j.state === "error");
-  $("#jBar").style.width = (j.state === "done" ? 100 : j.prog || 0) + "%";
-  const STEPS = /กำกับฉาก/.test((j.log || []).join(" ") + j.msg) ? STEPS_EX : STEPS_FX;
-  $("#jSteps").innerHTML = STEPS.map((s, i) => {
-    const n = i + 1, cls = j.state === "done" || n < j.step ? "ok" : n === j.step && j.state === "running" ? "now" : "";
-    return `<li class="${cls}"><span class="dot"></span>${s}</li>`;
+  lastJob = j; CC.pill.update(j);
+  if ($("#vJob").classList.contains("hidden")) {
+    if (j.state !== "running" || isAway(j)) return CC.pill.repaint();
+    show("vJob"); CC.pill.repaint();
+  }
+  const run = j.state === "running", done = j.state === "done", err = j.state === "error", cancel = j.state === "cancel";
+  $("#vJob").classList.toggle("run", run);
+  $("#jTitle").textContent = done ? "เสร็จแล้ว" : err ? "ตัดไม่สำเร็จ" : cancel ? "ยกเลิกแล้ว" : CC.jobTitle(j);
+  $("#jTitle").classList.toggle("err", err);
+  const srcs = j.srcs || [j.src];
+  $("#jSub").textContent = done || err || cancel ? CC.jobTitle(j) : `${srcs.length > 1 ? srcs.length + " คลิป · " : ""}ยาว ${CC.mmss(j.dur || 0)}`;
+  if (j.src && $("#jCover").dataset.src !== j.src) { $("#jCover").dataset.src = j.src; $("#jCover").src = "/api/clipthumb?path=" + encodeURIComponent(j.src); }
+  const pct = done ? 100 : Math.round(j.prog || 0);
+  $("#jBar").style.width = pct + "%"; $("#jPct").textContent = pct + "%";
+  $("#jEta").textContent = run ? CC.etaText(j) : done && j.now ? `ใช้เวลา ${CC.mmss(j.now - j.t0)}` : "";
+  const steps = j.steps && j.steps.length ? j.steps : /กำกับฉาก/.test((j.log || []).join(" ")) ? STEPS_EX : STEPS_FX;
+  $("#jSteps").innerHTML = steps.map((s, i) => {
+    const n = i + 1, now = n === j.step && run, cls = done || n < j.step ? "ok" : now ? "now" : "";
+    return `<li class="${cls}"><span class="dot"></span><span>${esc(s)}</span>${now && j.doing ? `<small>${esc(j.doing)}…</small>` : ""}</li>`;
   }).join("");
+  paintFeed(j);
   const log = $("#jLog"); log.textContent = (j.log || []).filter((l) => !/^\s*\d+\.\d+ speaker/.test(l)).join("\n"); log.scrollTop = log.scrollHeight;
-  $("#jCancel").classList.toggle("hidden", j.state !== "running");
-  $("#jBack").classList.toggle("hidden", j.state !== "error");
-  if (j.state === "done") setTimeout(() => (location.href = EDITOR), 900);
+  if (err) $("#jDet").open = true;
+  $("#jCancel").classList.toggle("hidden", !run);
+  $("#jAway").classList.toggle("hidden", !run);
+  $("#jBack").classList.toggle("hidden", run || done);
+  $("#jOpen").classList.toggle("hidden", !done);
+  paintBell();
+  if (done && !j.seen && !autoOpen) autoOpen = setTimeout(() => CC.openJob(j), 1200); // ยืนดูหน้ารออยู่ = เปิด editor ให้เลย
 }
-$("#jCancel").onclick = () => post("/api/job/cancel");
-$("#jBack").onclick = () => (staged ? show("vOpts") : show("vDrop"));
+// ของที่ได้ระหว่างทาง (การ์ดละอย่าง) — วาดเฉพาะการ์ดที่เปลี่ยน (GIF ไม่กระพริบ)
+const feedHtml = {};
+function paintFeed(j) {
+  const n = j.notes || {}, out = [];
+  const media = (u) => /\.(mp4|webm)$/i.test(u) ? `<video src="/api/jobimg?path=${encodeURIComponent(u)}" muted autoplay loop playsinline></video>`
+    : `<img src="/api/jobimg?path=${encodeURIComponent(u)}" alt="">`;
+  if (n.talk) out.push(["talk", `<div class="k">ถอดเสียง</div>ได้ ${n.talk.n} ประโยค`]);
+  if (n.title) out.push(["title", `<div class="k">AI ตั้งชื่องาน</div><div class="big">${esc(n.title.text)}</div>`]);
+  if (n.cmds) out.push(["cmds", `<div class="k">คำสั่งเสียงในคลิป</div>${n.cmds.items.length ? `<div class="tags">${n.cmds.items.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : '<span class="muted">ไม่ได้สั่งอะไร</span>'}`]);
+  if (n.cut) out.push(["cut", `<div class="k">ตัดช่วงเงียบ</div><b>${CC.mmss(n.cut.a)} → ${CC.mmss(n.cut.b)}</b> <span class="muted">· ตัดออก ${Math.round(n.cut.a - n.cut.b)} วิ</span>
+    <div class="cutbar"><i style="width:${Math.round(100 * n.cut.b / Math.max(n.cut.a, 1))}%"></i></div>`]);
+  if (n.photos) out.push(["photos", `<div class="k">รูปจริงตามที่สั่ง</div><div class="imgs">${n.photos.imgs.map(media).join("")}</div>`]);
+  if (n.gifs) out.push(["gifs", `<div class="k">GIF / meme ${n.gifs.n} จุด</div><div class="imgs">${n.gifs.imgs.map(media).join("")}</div>`]);
+  if (n.count) {
+    const c = n.count, L = [["ซับ", c.sub], ["ภาพ", c.broll], ["GIF", c.gif], ["เสียง", c.sfx], ["ซูม/เอฟเฟกต์", c.fx]].filter((x) => x[1]);
+    out.push(["count", `<div class="k">ลง timeline แล้ว</div><div class="tags">${L.map(([a, b]) => `<span class="n">${a} ${b}</span>`).join("")}</div>`]);
+  }
+  if (j.state === "running") out.push(["wait", `<i></i>${esc(j.doing || j.msg || "กำลังเริ่ม")}…`]);
+  const feed = $("#jFeed"), keys = out.map((x) => x[0]);
+  [...feed.children].forEach((el) => { if (!keys.includes(el.dataset.k)) { el.remove(); delete feedHtml[el.dataset.k]; } });
+  out.forEach(([k, h], i) => {
+    let el = feed.querySelector(`[data-k="${k}"]`);
+    if (!el) { el = document.createElement("div"); el.dataset.k = k; el.className = "fi" + (k === "wait" ? " wait" : ""); }
+    if (feedHtml[k] !== h) { el.innerHTML = h; feedHtml[k] = h; }
+    if (feed.children[i] !== el) feed.insertBefore(el, feed.children[i] || null);
+  });
+}
+setInterval(() => { if (lastJob && lastJob.state === "running" && !$("#vJob").classList.contains("hidden")) $("#jEta").textContent = CC.etaText(lastJob); }, 5000);
+$("#jCancel").onclick = () => { if (confirm("ยกเลิกงานนี้?")) post("/api/job/cancel"); };
+$("#jBack").onclick = () => { if (lastJob && lastJob.state !== "running") post("/api/job/seen"); staged ? show("vOpts") : show("vDrop"); CC.pill.repaint(); };
+$("#jOpen").onclick = () => CC.openJob(lastJob);
+$("#jAway").onclick = () => { jobAway(lastJob && lastJob.t0); show(staged ? "vOpts" : "vDrop"); CC.pill.update(lastJob); window.scrollTo({ top: 0 }); };
+$("#jBell").onclick = async () => { if (CC.push.state() === "on") return; await CC.push.enable(); paintBell(); };
+function paintBell() {
+  const st = CC.push.state(), on = st === "on";
+  $("#btnBell").classList.toggle("on", on); $("#bellTx").textContent = on ? "แจ้งเตือนเปิดอยู่" : "แจ้งเตือน";
+  $("#jBell").textContent = on ? "เสร็จแล้วจะเด้งแจ้งเตือน" : "แจ้งเตือนเมื่อเสร็จ"; $("#jBell").disabled = on;
+  $("#jBell").classList.toggle("hidden", st === "no" || !lastJob || lastJob.state !== "running");
+}
+$("#btnBell").onclick = async () => {
+  if (CC.push.state() === "on") { if (confirm("ปิดแจ้งเตือนบนเครื่องนี้?")) await CC.push.disable(); }
+  else await CC.push.enable();
+  paintBell();
+};
 
 /* ---------- โปรเจกต์ล่าสุด ---------- */
 const ICON = {
@@ -207,7 +285,7 @@ function paintProjects(ps) {
           ${p.outputs.length && MOBILE ? `<a class="ib" href="/api/video?path=${encodeURIComponent(p.outputs[p.outputs.length - 1])}&dl=1" download title="โหลดคลิปล่าสุดลงเครื่อง">${svg("dl")}</a>` : ""}
           <button class="ib" data-a="name" data-i="${i}" title="ตั้งชื่อ">${svg("name")}</button>
           <button class="ib" data-a="dir" data-i="${i}" title="เปิดโฟลเดอร์">${svg("dir")}</button>
-          <button class="ib" data-a="forget" data-i="${i}" title="เอาออกจากรายการ (ไม่ลบไฟล์)">${svg("hide")}</button></div></div></div>`).join("");
+          <button class="ib" data-a="del" data-i="${i}" title="ลบ (ไปถังขยะ กู้คืนได้ 30 วัน)">${svg("trash")}</button></div></div></div>`).join("");
   el.onclick = async (e) => {
     const b = e.target.closest("[data-a]"); if (!b) return;
     const a = b.dataset.a, p = ps[+b.dataset.i];
@@ -215,7 +293,7 @@ function paintProjects(ps) {
     if (a === "play") { const o = p.outputs[p.outputs.length - 1]; MOBILE ? window.open("/api/video?path=" + encodeURIComponent(o)) : post("/api/play", { path: o }); }
     if (a === "dir") post("/api/reveal", { path: p.dir });
     if (a === "name") { const t = prompt("ตั้งชื่องาน", p.title); if (t != null) { await post("/api/rename", { edit: p.edit, title: t }); refresh(); } }
-    if (a === "forget") { await post("/api/forget", { edit: p.edit }); refresh(); }
+    if (a === "del") toTrash("project", p.edit, p.title);
   };
 }
 
@@ -233,14 +311,17 @@ async function loadLib() {
 function paintLib() {
   $("#lCount").textContent = lib.length ? lib.length + " คลิป" : "";
   const shown = libAll ? lib : lib.slice(0, MOBILE ? 6 : 12);
-  $("#library").innerHTML = shown.map((c) => { const k = libSel.indexOf(c.path), t = c.ctime ? new Date(c.ctime) : new Date(c.added * 1000);
+  $("#library").innerHTML = ups.map((c) => `<div class="lc up" id="${c.id}">
+      <div class="th"><video src="${c.url}#t=0.5" muted playsinline preload="metadata"></video><div class="upr"><div style="--p:${c.pct}"><b>${c.pct}%</b></div></div></div>
+      <div class="body"><div class="ttl" title="${esc(c.name)}">${esc(c.name)}</div><small><span>กำลังอัป · ${(c.size / 1048576).toFixed(0)} MB</span></small></div></div>`).join("")
+    + shown.map((c) => { const k = libSel.indexOf(c.path), t = c.ctime ? new Date(c.ctime) : new Date(c.added * 1000);
     const fresh = !c.by && libNaming;
     return `<div class="lc${k >= 0 ? " on" : ""}" data-p="${esc(c.path)}">
       <div class="th"><img src="/api/clipthumb?path=${encodeURIComponent(c.path)}" loading="lazy" alt=""><span class="chk">${k >= 0 ? k + 1 : ""}</span>
         <span class="badge l">${c.dur ? mmss(c.dur) : "…"}</span>${c.uses.length ? `<span class="badge r">ตัดแล้ว ${c.uses.length}</span>` : ""}</div>
       <div class="body"><div class="ttl${fresh ? " wait" : ""}" title="${esc(c.name)}">${esc(fresh ? "AI กำลังตั้งชื่อ…" : c.title)}</div>
         <small><span>${t.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} ${t.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</span>
-        <button class="ib" data-ren title="ตั้งชื่อ">${svg("name")}</button><button class="ib" data-del title="ลบ (ไปถังขยะ)">${svg("trash")}</button></small></div></div>`; }).join("")
+        <button class="ib" data-ren title="ตั้งชื่อ">${svg("name")}</button><button class="ib" data-del title="ลบ (ไปถังขยะ กู้คืนได้ 30 วัน)">${svg("trash")}</button></small></div></div>`; }).join("")
     || '<div class="empty" style="grid-column:1/-1">ยังไม่มีคลิป — กด "+ อัปเก็บไว้ก่อน" หรือลากคลิปมาวางด้านบน</div>';
   $("#libMore")?.remove();
   if (lib.length > shown.length) {
@@ -257,10 +338,7 @@ $("#library").onclick = async (e) => {
     const t = prompt("ตั้งชื่อคลิป", c.title); if (t == null) return;
     await post("/api/library/rename", { path: c.path, title: t }); return loadLib();
   }
-  if (e.target.closest("[data-del]")) {
-    if (!confirm(`ลบ "${c.title}" ออกจากคลัง?\nไฟล์ไปอยู่ในถังขยะ (กู้คืนได้) · งานที่ตัดไปแล้วไม่หาย`)) return;
-    await post("/api/library/delete", { path: c.path }); return loadLib();
-  }
+  if (e.target.closest("[data-del]")) { libSel = libSel.filter((x) => x !== c.path); return toTrash("clip", c.path, c.title); }
   const k = libSel.indexOf(c.path);
   k >= 0 ? libSel.splice(k, 1) : libSel.push(c.path); paintLib();
 };
@@ -273,23 +351,76 @@ $("#lCut").onclick = () => {
 $("#libAdd").onclick = () => $("#pickLib").click();
 $("#pickLib").onchange = async (e) => {
   const files = [...e.target.files].filter((f) => /\.(mp4|mov|mkv|m4v|webm|avi)$/i.test(f.name)); e.target.value = "";
+  const cards = files.map(upCard);
   for (let k = 0; k < files.length; k++) {
-    await upload(files[k], "", `${k + 1}/${files.length} `, (m) => ($("#lCount").textContent = m)).catch((err) => alert(err));
-    loadLib();
+    await upload(files[k], "", `${k + 1}/${files.length} `, () => {}, cards[k]).catch((err) => { upDone(cards[k]); alert(err); });
   }
 };
+
+/* ---------- ถังขยะ: ลบในแอป = ย้ายมาที่นี่ (ไฟล์ไม่ขยับ) · ครบ 30 วันลบเอง · ลบถาวร = ไฟล์ไปถังขยะ Windows ---------- */
+let undoT = null;
+async function toTrash(kind, path, title) {
+  await post("/api/trash/add", { kind, path });
+  kind === "clip" ? loadLib() : refresh(); loadTrashCount();
+  $("#undoTx").textContent = `ย้าย "${title}" ไปถังขยะแล้ว`;
+  $("#undo").classList.remove("hidden");
+  $("#undoBtn").onclick = async () => {
+    clearTimeout(undoT); $("#undo").classList.add("hidden");
+    await post("/api/trash/restore", { kind, path }); kind === "clip" ? loadLib() : refresh(); loadTrashCount();
+  };
+  clearTimeout(undoT); undoT = setTimeout(() => $("#undo").classList.add("hidden"), 5000);
+}
+let T = { clips: [], projects: [], days: 30 };
+async function loadTrashCount() {
+  T = await fetch("/api/trash").then((r) => r.json()).catch(() => T);
+  const n = T.clips.length + T.projects.length;
+  $("#tCnt").textContent = n || "";
+  if (!$("#trash").classList.contains("hidden")) paintTrash();
+}
+function paintTrash() {
+  const n = T.clips.length + T.projects.length;
+  $("#tInfo").textContent = n ? `${n} รายการ · ลบถาวรเองเมื่อครบ ${T.days} วัน` : "";
+  $("#tEmpty").classList.toggle("hidden", !n);
+  const card = (kind, path, title, img, left) => `<div class="tc">
+      <div class="th"><img src="${img}" loading="lazy" alt=""><span class="left${left <= 3 ? " soon" : ""}">${left ? `เหลือ ${left} วัน` : "ลบวันนี้"}</span></div>
+      <div class="body"><div class="ttl" title="${esc(title)}">${esc(title)}</div>
+        <div class="row"><button data-res="${kind}" data-p="${esc(path)}">กู้คืน</button><button class="danger" data-pur="${kind}" data-p="${esc(path)}" data-t="${esc(title)}">ลบถาวร</button></div></div></div>`;
+  $("#tBody").innerHTML = n ? (T.projects.length ? `<h4>โปรเจกต์ ${T.projects.length}</h4><div class="tgrid">${T.projects.map((p) =>
+      card("project", p.edit, p.title, "/api/thumb?edit=" + encodeURIComponent(p.edit), p.left)).join("")}</div>` : "")
+    + (T.clips.length ? `<h4>คลิปในคลัง ${T.clips.length}</h4><div class="tgrid">${T.clips.map((c) =>
+      card("clip", c.path, c.title, "/api/clipthumb?path=" + encodeURIComponent(c.path), c.left)).join("")}</div>` : "")
+    : '<div class="empty">ถังขยะว่าง</div>';
+}
+$("#tBody").onclick = async (e) => {
+  const r = e.target.closest("[data-res]"), d = e.target.closest("[data-pur]");
+  if (r) { r.disabled = true; await post("/api/trash/restore", { kind: r.dataset.res, path: r.dataset.p }); }
+  if (d) {
+    if (!confirm(`ลบ "${d.dataset.t}" ถาวร?\nไฟล์จะไปอยู่ในถังขยะของ Windows บนคอม (กู้จากตรงนั้นได้)`)) return;
+    d.disabled = true; const x = await post("/api/trash/purge", { items: [{ kind: d.dataset.pur, path: d.dataset.p }] });
+    if (!x.n) alert("ลบไม่ได้ — งานนี้อาจกำลังตัดอยู่");
+  }
+  if (r || d) { loadTrashCount(); loadLib(); refresh(); }
+};
+$("#tEmpty").onclick = async () => {
+  if (!confirm(`ลบทั้งหมด ${T.clips.length + T.projects.length} รายการถาวร?\nไฟล์จะไปอยู่ในถังขยะของ Windows บนคอม`)) return;
+  await post("/api/trash/purge", {}); loadTrashCount(); loadLib(); refresh();
+};
+$("#btnTrash").onclick = () => { $("#trash").classList.remove("hidden"); paintTrash(); loadTrashCount(); };
+$("#tClose").onclick = () => $("#trash").classList.add("hidden");
+$("#trash").onclick = (e) => { if (e.target.id === "trash") $("#trash").classList.add("hidden"); };
+addEventListener("keydown", (e) => { if (e.key === "Escape") $("#trash").classList.add("hidden"); });
 
 async function refresh() {
   const h = await fetch("/api/home").then((r) => r.json());
   root = h.root; $("#root").textContent = "เก็บงานที่ " + h.root;
   $("#toEditor").style.display = h.current ? "" : "none";
   paintProjects(h.projects);
-  if (h.job && h.job.state === "running") paintJob(h.job);
+  if (h.job && h.job.state !== "idle") paintJob(h.job);
   else if (h.staged && !staged) stage(h.staged);
 }
 // สำรองให้ SSE: ผ่าน tailscale serve (มือถือ) event อาจค้างในตัวกลาง → หน้าความคืบหน้าค้างทั้งที่งานเสร็จแล้ว
 setInterval(async () => {
-  if ($("#vJob").classList.contains("hidden")) return;
+  if ($("#vJob").classList.contains("hidden") && !(lastJob && lastJob.state === "running")) return;
   const h = await fetch("/api/home").then((r) => r.json()).catch(() => null);
   if (h && h.job) paintJob(h.job);
 }, 3000);
@@ -302,6 +433,13 @@ if (MOBILE) {
 }
 const es = new EventSource("/api/events");
 es.addEventListener("job", (e) => paintJob(JSON.parse(e.data)));
-es.addEventListener("library", () => loadLib());
+es.addEventListener("library", () => { loadLib(); loadTrashCount(); });
+es.addEventListener("projects", () => { refresh(); loadTrashCount(); });
 es.addEventListener("stage", (e) => { const d = JSON.parse(e.data); if (d.path) stage(d.path); });
-paintOpts(); refresh(); loadLib();
+// มาจากแจ้งเตือน/แถบงาน: ?job=1 ดูหน้ารอ · ?open=1 เปิดงานที่เพิ่งตัดเสร็จ · ?go=editor ไป editor
+const Q = new URLSearchParams(location.search);
+if (Q.get("go") === "editor") location.replace(EDITOR);
+if (Q.has("job") || Q.has("open")) { jobAway(null); history.replaceState(null, "", "/"); }
+if (Q.has("open")) fetch("/api/job").then((r) => r.json()).then((j) => { if (j.state === "done" && j.edit) CC.openJob(j); });
+if (Q.has("job")) fetch("/api/job").then((r) => r.json()).then((j) => { if (j.state !== "idle") { show("vJob"); paintJob(j); } });
+paintOpts(); refresh(); loadLib(); loadTrashCount(); paintBell();
