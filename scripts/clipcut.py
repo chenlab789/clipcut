@@ -22,6 +22,8 @@ import json
 import subprocess
 import argparse
 
+import ccfx  # noqa: E402,F401  (ซ่อนหน้าต่างดำของ subprocess บน Windows)
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -33,6 +35,7 @@ FONTS = os.path.join(os.path.dirname(HERE), "fonts")
 FF = os.environ.get("FFMPEG", "ffmpeg")
 FFPROBE = os.environ.get("FFPROBE", "ffprobe")
 BG = "#060606"
+FPS = 30
 
 # คำเทคที่ไฮไลต์ทองเป็น default (คลิป ChenLab สายสอน) — style "highlights" ทับได้
 KEYWORDS = ["Chrome Remote Desktop", "Claude Code", "Remote Desktop",
@@ -135,7 +138,59 @@ def compute_keep(segments, pad, min_silence, min_keep=0.25, extra=None):
             merged[-1][1] = max(merged[-1][1], en)
         else:
             merged.append([st, en])
-    return [(s, e) for s, e in merged if e - s >= min_keep]
+    # ปัดขอบให้ตรงเฟรม 30fps — ไม่งั้นภาพ (ตัดทีละเฟรม) กับเสียง (ตัดตามเวลาจริง) คลาดสะสมทุกรอยตัด → ปากไม่ตรงเสียงท้ายคลิป
+    snap = lambda t: round(t * FPS) / FPS  # noqa: E731
+    return [(snap(s), snap(e)) for s, e in merged if snap(e) - snap(s) >= min_keep]
+
+
+def tighten_keep(src, keep, protect=None, min_gap=0.3, hold=0.08, min_island=0.12):
+    """ตัด dead air รอบสองด้วย "ความดังเสียงจริง" (ทุก 10ms) — ตัดตามบทอย่างเดียวรอดเยอะ:
+    เงียบ < min_silence ระหว่างประโยค + pad หัวท้าย + เว้นจังหวะกลางประโยค + เวลาท้ายคำของ EL ลากทับช่วงหายใจ
+    ช่วงเงียบ >= min_gap → เหลือหายใจ hold วิ ต่อฝั่ง · ระดับเงียบปรับตามเสียงพื้นของคลิปนั้น
+    protect = ช่วงที่ห้ามแตะ (--keep ช่วงโชว์ของเงียบๆ)"""
+    import numpy as np
+    raw = subprocess.run([FF, "-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+                         capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, "<i2").astype(np.float32) / 32768
+    hop = 160  # 10ms
+    n = len(x) // hop
+    if n < 10:
+        return keep
+    db = 20 * np.log10(np.sqrt((x[: n * hop].reshape(n, hop) ** 2).mean(1)) + 1e-6)
+    # ไม่นับเงียบสนิท (-120 dB จาก noise gate/ไมค์ตัด) ไม่งั้นพื้นต่ำเกิน เกณฑ์เงียบหลุดไปที่ -90 dB ไม่เจออะไรเลย
+    live = db[db > -90]
+    speech = np.percentile(live, 95) if len(live) else -20
+    noise = np.percentile(live, 15) if len(live) else -60
+    thr = min(speech - 22, max(speech - 30, noise + 0.35 * (speech - noise)))
+    quiet = db < thr
+    out = []
+    for s, e in keep:
+        a, b = int(s * 100), min(n, int(e * 100))
+        cuts, i = [], a
+        while i < b:
+            if quiet[i]:
+                j = i
+                while j < b and quiet[j]:
+                    j += 1
+                gs, ge = i / 100, j / 100
+                inside = any(ps < ge and pe > gs for ps, pe in (protect or []))
+                if ge - gs >= min_gap and not inside:
+                    lo = gs if i == a else gs + hold  # เงียบหัวช่วง = ตัดจากขอบช่วงเลย เหลือแค่ hold ก่อนคำแรก
+                    hi = ge if j >= b else ge - hold  # เงียบท้ายช่วง = ตัดถึงขอบช่วงเลย เหลือแค่ hold หลังคำสุดท้าย
+                    if hi > lo:
+                        cuts.append((lo, hi))
+                i = j
+            else:
+                i += 1
+        cur = s
+        for lo, hi in cuts:
+            if lo - cur >= min_island:
+                out.append((cur, lo))
+            cur = hi
+        if e - cur >= min_island:
+            out.append((cur, e))
+    snap = lambda t: round(t * FPS) / FPS  # noqa: E731
+    return [(snap(s), snap(e)) for s, e in out if snap(e) > snap(s)]
 
 
 def remap(t, keep):
@@ -151,12 +206,33 @@ def remap(t, keep):
 
 
 # ---------- 2. ตัดวิดีโอ ----------
+def sum_tree(terms):
+    """a+b+c+… แบบต้นไม้สมดุล — ffmpeg parse บวกยาวเป็นเส้นตรงเกิน ~100 ตัวแล้วพัง (Cannot allocate memory)"""
+    if len(terms) == 1:
+        return terms[0]
+    m = len(terms) // 2
+    return f"({sum_tree(terms[:m])}+{sum_tree(terms[m:])})"
+
+
 def cut_video(src, keep, out):
-    vexpr = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in keep)
+    """ตัด dead air — ภาพ select ทีละเฟรม, เสียง atrim+concat ระดับ sample (aselect ตัดเป็นก้อน ~21ms → คลาดสะสม)
+    ขอบ keep อยู่บนกริดเฟรมแล้ว (compute_keep) → ภาพ (e-s)*30 เฟรม = เสียง (e-s) วิ เป๊ะทุกช่วง ปากตรงเสียงถึงท้ายคลิป
+    รอยต่อเสียง fade 6ms กันเสียง "ปึ๊ก" ตรงรอยตัด"""
+    import tempfile
+    h = 0.5 / FPS  # ภาพเลื่อนครึ่งเฟรม = ได้เฟรมช่วง [s, e) พอดี
+    vexpr = sum_tree([f"between(t,{s - h:.4f},{e - h:.4f})" for s, e in keep])
     # fps=30 ก่อน select: คลิปอัดจอ iPhone เป็น VFR (r_frame_rate โกหก) → N/FRAME_RATE ยืดภาพ ไม่ตรงเสียง
-    vf = f"fps=30,select='{vexpr}',setpts=N/30/TB"
-    af = f"aselect='{vexpr}',asetpts=N/SR/TB"
-    run([FF, "-y", "-i", src, "-vf", vf, "-af", af, "-r", "30",
+    g = [f"[0:v]fps={FPS},select='{vexpr}',setpts=N/{FPS}/TB[v]", "[0:a]asplit=" + str(len(keep)) + "".join(f"[i{i}]" for i in range(len(keep)))]
+    for i, (s, e) in enumerate(keep):
+        f = min(0.006, (e - s) / 4)
+        g.append(f"[i{i}]atrim={s:.6f}:{e:.6f},asetpts=PTS-STARTPTS,"
+                 f"afade=t=in:d={f:.4f},afade=t=out:st={e - s - f:.4f}:d={f:.4f}[a{i}]")
+    g.append("".join(f"[a{i}]" for i in range(len(keep))) + f"concat=n={len(keep)}:v=0:a=1[a]")
+    if out.endswith(".cut.mp4"):
+        json.dump([[round(s, 4), round(e, 4)] for s, e in keep], open(out[:-8] + ".keep.json", "w"))
+    gf = os.path.join(tempfile.gettempdir(), "clipcut_cut_graph.txt")
+    open(gf, "w", encoding="utf-8").write(";\n".join(g))
+    run([FF, "-y", "-i", src, "-/filter_complex", gf, "-map", "[v]", "-map", "[a]", "-r", str(FPS),
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
          "-c:a", "aac", "-b:a", "192k", out],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -172,7 +248,7 @@ def fmt_t(t):
 def phrase_chunks(segments, keep, max_words=6):
     """แตก segment เป็นวลีสั้น ๆ ตาม word timestamps + remap เวลา → (st, en, text, speaker)"""
     chunks = []
-    for seg in segments:
+    for seg in merge_midword(segments):
         sp = seg.get("speaker")
         words = seg.get("words") or []
         if not words:
@@ -206,13 +282,53 @@ def text_w(t):
     return sum(1.6 if c.isascii() and c.isalpha() else 1 for c in t)
 
 
+# คำพูดกันเองที่พจนานุกรม pythainlp ไม่มี → ไม่ใส่ = โดนหั่นกลางคำ ("แม่ | ง", "แม่ | งอ | ยู่")
+SLANG = ["แม่ง", "เหี้ย", "เชี่ย", "สัส", "ไอสัส", "ไอ้สัส", "ไอสัตว์", "เว้ย", "ว่ะ", "ป่ะ", "ปะ", "มั้ง",
+         "เนี่ย", "เงี้ย", "อย่างเงี้ย", "งี้", "อย่างงี้", "ยังไง", "ไง", "โคตร", "เจ๋ง", "ปึ๊บ", "อ่ะ", "อะ",
+         "กู", "มึง", "พวกมึง", "เวิร์ค", "เวิร์ก", "โอเค", "ชิล", "แป๊บ", "เดี๋ยว", "ตะกี้", "เมื่อกี้"]
+_TOK = None
+
+
+def thai_tok():
+    """ตัวตัดคำไทย (newmm + คำแสลง) — ไม่มี pythainlp = ตัดได้แค่ที่ช่องว่าง"""
+    global _TOK
+    if _TOK is None:
+        try:
+            from pythainlp.tokenize import word_tokenize
+            from pythainlp.corpus.common import thai_words
+            from pythainlp.util import dict_trie
+            trie = dict_trie(set(thai_words()) | set(SLANG))
+            _TOK = lambda t: word_tokenize(t, custom_dict=trie, engine="newmm", keep_whitespace=True)  # noqa: E731
+        except ImportError:
+            _TOK = lambda t: re.split(r"(\s+)", t)  # noqa: E731
+    return _TOK
+
+
+def merge_midword(segments, max_gap=1.5):
+    """ElevenLabs ตัด segment กลางคำได้ ("เห" | "มือนกับ", "โ" | "อเค") → ต่อกลับถ้าตัดคำแล้วมีคำคร่อมรอยต่อ"""
+    tok = thai_tok()
+    out = []
+    for s in segments:
+        p = out[-1] if out else None
+        if (p and s["start"] - p["end"] <= max_gap and p.get("speaker") == s.get("speaker")
+                and p["text"] and s["text"] and not p["text"][-1].isspace() and not s["text"][0].isspace()
+                and "฀" <= p["text"][-1] <= "๿" and "฀" <= s["text"][0] <= "๿"):
+            joined, cut, pos = p["text"] + s["text"], len(p["text"]), 0
+            for w in tok(joined):
+                if pos < cut < pos + len(w):  # มีคำคร่อมรอยต่อ = ตัดกลางคำ
+                    out[-1] = dict(p, text=joined, end=s["end"], words=(p.get("words") or []) + (s.get("words") or []))
+                    break
+                pos += len(w)
+            else:
+                out.append(s)
+            continue
+        out.append(s)
+    return out
+
+
 def split_long(chunks, maxw):
     """ไทยไม่มีเว้นวรรค libass ตัดบรรทัดไม่ได้ → ท่อนยาวเกินจอแตกเป็นหลายท่อนต่อกัน (ตัดตามคำ)"""
-    try:
-        from pythainlp.tokenize import word_tokenize
-        tok = lambda t: word_tokenize(t, engine="newmm", keep_whitespace=True)
-    except ImportError:  # ไม่มี pythainlp → ตัดได้แค่ที่ช่องว่าง
-        tok = lambda t: re.split(r"(\s+)", t)
+    tok = thai_tok()
     out = []
     for st, en, txt, sp in chunks:
         tw = text_w(txt)
@@ -333,12 +449,15 @@ def main():
     ap.add_argument("--model", default="medium", help="whisper model (ใช้เมื่อไม่มี ElevenLabs)")
     ap.add_argument("--min-silence", type=float, default=0.6)
     ap.add_argument("--pad", type=float, default=0.15)
+    ap.add_argument("--loose", action="store_true", help="ไม่ตัดเงียบรอบสอง (ตัดตามบทอย่างเดียว แบบ v2)")
     ap.add_argument("--only-16x9", action="store_true")
     ap.add_argument("--only-9x16", action="store_true")
     ap.add_argument("--skip-transcribe", action="store_true",
                     help="ใช้ segments.json เดิม (ข้ามถอดเสียงซ้ำ)")
     ap.add_argument("--transcribe-only", action="store_true",
                     help="ถอดเสียงแล้วหยุด — ให้ตรวจ/แก้ segments.json + ทำ style ก่อน render")
+    ap.add_argument("--edit", action="store_true",
+                    help="ตัด dead air แล้วสร้าง <ชื่อ>.edit.json (ไม่ render) — ใส่ SFX/อีโมจิ/ภาพ/ซูม ใน editor แล้ว render_edit.py")
     args = ap.parse_args()
 
     src = os.path.abspath(args.input)
@@ -360,6 +479,8 @@ def main():
     # 2. keep intervals
     extra = parse_keep(args.keep)
     keep = compute_keep(segments, args.pad, args.min_silence, extra=extra)
+    if not args.loose:  # รอบสอง: ตัดเงียบด้วยความดังเสียงจริง (ตัดตามบทอย่างเดียวรอดเงียบ ~13% ของคลิป)
+        keep = tighten_keep(src, keep, protect=extra)
     orig = probe_dur(src)
     kept = sum(e - s for s, e in keep)
     print(f"\n⏱  เดิม {orig:.1f}s → ตัดเหลือ {kept:.1f}s "
@@ -369,6 +490,17 @@ def main():
     # 3. cut
     cut = os.path.join(outdir, f"{base}.cut.mp4")
     cut_video(src, keep, cut)
+
+    # 4a. โหมด editor → เขียน edit.json แล้วจบ (render ทีหลังด้วย render_edit.py)
+    if args.edit:
+        import edit_init
+        import ccfx
+        ed = os.path.join(outdir, f"{base}.edit.json")
+        aspect = "16x9" if args.only_16x9 else "9x16"
+        ccfx.save_edit(ed, edit_init.build(seg_json, cut, load_style(args.style), keep, aspect, probe_wh(src)))
+        server = os.path.join(HERE, "editor", "server.py")
+        print(f'\n✓ edit → {ed}\n  เปิด editor: python "{server}" "{ed}"')
+        return
 
     # 4. captions + render
     style = load_style(args.style)

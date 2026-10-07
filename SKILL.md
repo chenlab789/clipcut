@@ -1,6 +1,6 @@
 ---
 name: clipcut
-description: ตัดต่อคลิป ChenLab อัตโนมัติด้วย AI — ตัด dead air/ช่วงเงียบ + ใส่ซับไทยไวรัล (สี/ฟอนต์ตามธีมคลิป, แยกสีคนพูด) + export 16:9 (YouTube) และ/หรือ 9:16 (Shorts/Reels). ใช้เมื่อเฉินสั่ง /clipcut หรือ "ตัดคลิปให้" กับไฟล์วิดีโอ
+description: ตัดต่อคลิป ChenLab อัตโนมัติด้วย AI — ตัด dead air/ช่วงเงียบ + ใส่ซับไทยไวรัล (สี/ฟอนต์ตามธีมคลิป, แยกสีคนพูด) + SFX/อีโมจิเด้ง/ภาพประกอบ/ซูม-สั่น-แฟลช ตามจังหวะ ผ่านโปรแกรม editor (timeline + พรีวิวสด ที่เฉินเห็นและแก้ได้ทันที) + export 16:9 (YouTube) และ/หรือ 9:16 (Shorts/Reels). ใช้เมื่อเฉินสั่ง /clipcut, "ตัดคลิปให้", "ใส่เอฟเฟกต์/เสียง/อีโมจิในคลิป" หรือ "เปิด editor"
 ---
 
 # /clipcut — AI Video Auto-Editor (ChenLab)
@@ -14,6 +14,60 @@ description: ตัดต่อคลิป ChenLab อัตโนมัติ�
 - **pythainlp** — ตัดคำไทย แตกซับยาวเกินจอ (ไม่มี = ตัดได้แค่ที่ช่องว่าง)
 - **video-understand** skill — ดูคลิปก่อนตัด (เลือกธีม + หาช่วงไคลแมกซ์ที่ไม่มีเสียงพูด)
 - ฟอนต์ใน `clipcut/fonts/`: **Mali** (น่ารัก/ชิล), **Kanit** (หนา เทค/จริงจัง), **Itim** (กลม สบายๆ)
+
+## โปรแกรม ClipCut (เฉินใช้เองไม่ต้องคุยกับกุ้ง) — ไอคอน "ClipCut" บน Desktop
+ดับเบิลคลิก → หน้าแรก: ลากคลิปวาง (หรือลากใส่ไอคอน) → เลือกแบบ (ครบชุด / ตัด+ซับ / ตัดอย่างเดียว · อารมณ์ · 9:16/16:9 · ความแน่น) → `autopilot.py` ทำ 5 ขั้น (~1 นาทีต่อคลิป 45 วิ + เวลาตัด) → เปิด editor ให้เช็ค → เฉินกด Render เอง
+- โปรเจกต์อยู่ที่ `D:\ChenLab-Recordings\clipcut\<ชื่อคลิป>\` (env `CLIPCUT_HOME` เปลี่ยนได้) · รายการล่าสุด `~/.clipcut/recent.json`
+- AI = `claude -p --model sonnet` (claude.exe ตรงจาก npm — ใช้แพ็กเกจ Max ไม่ต้องมี key) · pass1 ดูภาพ `_frames.jpg` + แก้คำเพี้ยน + สไตล์ซับ + เพลง · pass2 วางเอฟเฟกต์ → ตรวจชื่อ sfx/fx/อีโมจิผสม ก่อนลง timeline
+- ภาพประกอบ = **พิกเซลแนว animclip** (`pixel.py`): ตัวการ์ตูนเฉิน `<tee|hoodie|coat>_<ท่า>` + `icon` + `brand` (โดเมน → favicon → ลบพื้นหลัง → พิกเซล 20 ช่อง + ขอบครีม) — sprite ก๊อปจาก animclip ไว้ที่ `assets/pixel/` (ท่าใหม่: วาดที่ animclip แล้วก๊อปมา)
+- เปิดซ้ำตอนรันอยู่ = ส่งไฟล์ให้ตัวเดิม (`/api/stage`) ไม่เปิด server ซ้อน · ติดตั้งไอคอนใหม่: `python scripts/install_shortcut.py`
+- เฉินสั่งผ่านแชทก็ยังใช้ workflow ด้านล่างได้ตามเดิม
+
+## แบบ Motion Explainer (2026-10-06 — เฉินเอาคลิป TikTok @warodomdotcom มาเป็นตัวอย่าง)
+หน้าแรก ClipCut เลือก "แบบตัดต่อ: Motion Explainer" → จัดฉากใหม่ทุก 2-5 วิ: พื้นกระดาษ (ตาราง/เส้น/คราฟต์/กรมท่า…) + ป้ายหัวข้อ + ภาพพิกเซล 1-3 ชิ้น + ป้ายคำ + **ซับเต็มล่าง** + คนพูดย้ายกรอบ (full / polaroid / corner / circle / none)
+- `remotion/src/Explainer.jsx` (ส่วนพื้นกระดาษ/ดาว/ท่าเด้ง/transition ยกมาจาก animclip) · `remotion/node_modules` = junction ไป animclip (ไม่โหลดซ้ำ 750MB) · `public/pixel` + `public/jobs/<hash>` = junction ไปคลัง/โปรเจกต์
+- **แก้ Explainer.jsx แล้วต้อง build ตัวเล่นใหม่**: `cd remotion && node_modules/.bin/esbuild.cmd src/player-entry.jsx --bundle --minify --format=iife --jsx=automatic --loader:.jsx=jsx "--define:process.env.NODE_ENV=\"production\"" --outfile=../scripts/editor/player.js` — editor พรีวิวด้วย Remotion Player ตัวเดียวกับตอนเรนเดอร์ (ภาพตรงเป๊ะ)
+- `explainer.py plan` = AI (opus) กำกับฉาก → ของเลือก "อะไร" แต่ตำแหน่งจัดเองตาม `SLOTS` ของแต่ละกล้อง (มีคู่ใน app.js แก้พร้อมกัน) · `explainer.py render` = Remotion ภาพเงียบ + `render_edit.audio_graph` ผสมเสียง
+- `face.py` หาหน้า (OpenCV Haar ที่ 1280px — หน้าเล็กมุมจอจากคลิปอัดจอ) → กรอบ circle/corner ซูมเข้าหน้า
+- **ไอคอนพิกเซลโตเองได้** (`pixel_gen.py`): AI (opus) วาดตาราง 16×16 ชุดสี animclip → `assets/pixel/icon_<ชื่อ>.png` + ตารางใน `icons.json` · AI กำกับฉากขอ `{"new": ..}` ได้ ≤12 ชิ้น/คลิป · editor มีช่อง "ให้ AI วาด" · วาด 8 ตัวขนาน ~2 นาที
+- **พรีวิวภาพค้าง (แก้ 2026-10-07 — เฉินเจอ "ภาพค้างเป็นช่วง เสียงกับโมชั่นเล่นต่อ" เฉพาะใน editor)**: ① `View` ใน Explainer.jsx ต้องคืนโครงสร้างเดิมทุกฉาก (เปลี่ยนแค่ style) — เดิมคืน element ต่างแบบ → React สร้าง `<video>` ใหม่ทุกฉาก ② editor ใช้ `<cut>.proxy.mp4` (540 px, keyframe ทุก 15 เฟรม — server ทำเองตอนเปิดโปรเจกต์) ③ ซิงก์ตอนเล่นวัดจาก `<video>` จริงในตัวเล่น คลาดเกิน 0.1 วิค่อย seek ห่างกัน ≥1.5 วิ (seek ถี่ = ค้าง) · วัดผล: เล่น 20 วิ ไม่ค้าง คลาด ≤0.1 วิ
+- **ซูมตามบริบท (2026-10-07 — เฉินด่า "ซูมโง่ ไม่มี subject ซูมเข้ากลางคลิป")** `focus.py`:
+  ① ตามหน้าทุกคน YuNet (`assets/models/yunet.onnx`) ทุก 0.2 วิ → track · รวม track ที่หลุดเฟรม (เวลาไม่ซ้อน + ตำแหน่งเดียวกัน) ② จับคู่คนพูด = ปากใครขยับตอน speaker_X พูด (`E.faces.tracks[].speaker`) ③ AI (opus) ดูภาพนิ่ง 2 ภาพ/ช่วง + ตารางพิกัด + ประโยค → `focus: [{at, mode: speaker|box|wide, box}]`
+  - Explainer: ต่อฉาก (`sc.focus`) → `focusRegion` ใน Explainer.jsx เฉลี่ย ±0.3 วิ ให้กล้องนุ่ม · กรอบเล็ก (circle/corner) = หน้าเต็มกรอบ · กรอบใหญ่ = หัวถึงอก · ซูม ≥ cover ≤ 4 เท่า
+  - แปะเอฟเฟกต์: ซูม/สั่น → `fx_x, fx_y` (พิกัดเฟรมผลลัพธ์) → zoompan + พรีวิว canvas ใช้สูตรเดียวกัน
+  - editor: Explainer แผงฉาก "กล้องมองที่" + ลากกรอบบนภาพ + ปุ่มสลับคนพูด · แปะเอฟเฟกต์ เป้าเล็งบนจอคลิกย้าย
+  - `explainer.py focus <edit>` = ทำโฟกัสใหม่ให้โปรเจกต์ที่มีฉากแล้ว (~2 นาที/คลิป 50 วิ)
+- **กันหน้าต่างเก่าเซฟทับ (บั๊กจริง 2026-10-07 — faces/focus หายหลังรีสตาร์ท server)**: rev เริ่มจากเวลา ไม่ใช่ 0 · server เติม field ที่หน้าเว็บส่งมาไม่ครบจากดิสก์ + `keep_focus` · หน้าเว็บ merge ฉากไม่ทิ้ง focus
+- เรนเดอร์: คลิป 34 วิ ครึ่งความละเอียด ~2 นาที (ช้ากว่าแบบแปะเอฟเฟกต์มาก — คลิปยาวใช้ "เรนเดอร์ทดสอบ" ก่อน)
+
+## ซูมอัจฉริยะ แบบแปะเอฟเฟกต์ (2026-10-07 — `smartcam.py`)
+- **กล้องตามหน้า**: `E.cam = {mode follow|fit, zoom, w, h, path[[t,x0,y0]]}` กรอบครอปขนาดคงที่จากต้นฉบับ เลื่อนตามคนพูด (deadzone 12% · เลื่อนนุ่ม 1 วิ · ย้ายไกล >0.18 = ตัดฉับ) · แนวนอน→9:16 = zoom 1 (ครอปเต็มสูงแทนพื้นเบลอ) · สัดส่วนเดียวกัน = 1.15
+  สูตรต้องตรงกัน 3 ที่: `smartcam.cam_at` · `camAt()` app.js · `cam_expr()` crop ใน render_edit
+- **ซูมไปที่ของ**: AI (opus) ดูภาพทั้งคลิปช่วงละ ~4.5 วิ → mode box = fx ใหม่ `focus` (เข้า 0.35 วิ ค้าง ออก 0.35 วิ, amount ให้ของกว้าง ~60% จอ ไม่เกิน 2.2) + `box_src` ให้กล้องเลื่อนไปหาของ · ทับซูมที่ AI วาง = เอา focus
+- **ซูมกระแทกตามจังหวะ**: `voice_peaks()` (dB สูงกว่า median เสียงพูด +5) ส่งให้ AI ใน pass2 + `snap_punches` ขยับ punch ±0.35 วิ เข้าจุดเน้น
+- **กันภาพนิ่ง**: ช่วงว่าง ≥3 วิ ระหว่างรอยตัด → zoomin/zoomout สลับ amount 1.05-1.09 (`auto: drift`) จบตรงรอยตัด
+- จุดซูม: `fx_src` = พิกัดต้นฉบับ → `refocus()` แปลงเป็น fx_x/fx_y ตามกล้อง · ลากเป้าเล็งใน editor = ลบ fx_src (ของมือ) · editor แท็บเอฟเฟกต์ เปิด/ปิดกล้อง + ซูมพื้นฐาน → POST /api/cam
+- ไอคอนใหม่: pass2 ให้ AI ตั้งชื่อ snake_case + `icon_desc` → `pixel_gen.ensure` (density 1/2/3 = 2/4/6 ตัว)
+- หน้าต่างดำเด้งตอน AI ทำงาน: server = pythonw → autopilot ไม่มี console → ffmpeg/claude/python ลูกเปิดหน้าต่างใหม่ทุกตัว · แก้ที่ `ccfx.py` บังคับ CREATE_NO_WINDOW ให้ subprocess ทุกตัว (clipcut.py import ccfx) · เทสด้วยตัวจับหน้าต่างใหม่: ทั้งงาน 0 หน้าต่าง
+- UI v3: หน้าแรกการ์ดโปรเจกต์ (ภาพปก `_thumb.jpg`, ตั้งชื่อ = `E.title` ผ่าน /api/rename) · ตัวเลือกเป็นสวิตช์ + สรุปด้านขวา · editor timeline สูงตามจำนวนแถว, ภาพรวมโปรเจกต์ตอนไม่ได้เลือกอะไร
+
+## GIF / meme + ตัวการ์ตูนตามคนพูด (2026-10-07)
+- **คลัง GIF ในเครื่อง** `gif_lib.py` → `assets/gif/<หมวด>/<id>.mp4` + `library.json` (250 ตัว 25 หมวด ~48 MB, ไม่ขึ้น GitHub) · โหลดจาก GIPHY (key = env `GIPHY_API_KEY` ผู้ใช้ Windows) → AI (sonnet) ดูภาพ 3 เฟรม คัดตัวมีลายน้ำ/ตัวหนังสือเยอะ/ห่วยออก + เขียนคำอธิบาย
+  เติม: `gif_lib.py build --cat x,y` · ไฟล์ของเฉินเอง: โยนใส่ `assets/gif/_mine/` แล้ว `gif_lib.py mine` · ไม่มีตัวตรง → `online()` ค้นสดแล้วเก็บเข้าคลัง · editor ปุ่ม × = ban
+- **3 แบบ** (track `gif`): `overlay` แปะทับกรอบสติกเกอร์เอียง · `cut` คลิปหยุด ตัดไป GIF เต็มจอ (พื้นเบลอ+กรอบขาว+คำมุก) · `freeze` ภาพค้าง+ซูม+ข้อความ ("เดี๋ยวนะ...") — cut/freeze มีเสียง meme คู่ (`gap` id ผูกกัน)
+- **ช่องหยุดคลิป** `gaps.py`: `E.gaps=[{id,at,dur}]` + `E.video_base` (คลิปไม่มีช่อง) → `E.video` = `*.gap<hash>.mp4` (tpad clone + apad) → editor/render ใช้เวลาเดียวกันหมด · ใส่/ลบช่อง = `_shift` เลื่อน items/gaps/faces/cam path · ช่องวางท้ายประโยค (`boundary`) · editor ใส่/ลบผ่าน POST /api/gap (สร้างคลิปใหม่ ~30-60 วิ)
+- AI pass2 ได้ catalog คลัง + เป้าจำนวน (density 2: ตัดเข้า ~dur/20, แปะ ~dur/14) · `GIF_SPACING` กันถี่ · เทสคลิปแกะกล่อง 64 วิ: แปะ 4 ตัดเข้า 2 หยุดภาพ 1
+- **ตัวการ์ตูนตามคนพูด**: `char_sprites.py` สร้าง `girl_<ท่า>` (แฟน: ผมยาวหน้าม้า แว่น เสื้อน้ำตาล) จากโครง animclip · `roles()` เฉิน=hoodie_ / คนพูดเยอะสุดที่ไม่ใช่เฉิน=girl_ / คนอื่น=ไม่มีตัว — autopilot บังคับ prefix ตามคนพูดตอนนั้นเอง (AI ส่งแค่ท่า)
+- อีโมจิ: เลิกใช้ทั้งโปรแกรม (เฉินสั่ง "ไม่มียิ่งดี") — autopilot บังคับ emoji=0, editor ไม่มีแท็บ/แถว (โชว์แค่โปรเจกต์เก่าที่ค้าง)
+- โควตาภาพ: เลือก GIF อย่างเดียว → แปะทับถี่ขึ้น (`gif_spacing` ×0.6) · ภาพพิกเซลอย่างเดียว → ~dur/4.8 ภาพ (density 2) · ทั้งคู่ → พิกเซลได้รอง ~dur/10.4
+- พรีวิว GIF: โหลดทุกตัวล่วงหน้า (`preloadGifs`) + หยุดตัวที่ไม่อยู่บนจอ + watchdog คลิปหลักค้าง >0.4 วิ = seek ที่เดิม · พื้นเบลอตอนตัดเข้าใช้ canvas จิ๋ว 14×24 (ctx.filter blur ทั้งจอ = กระตุก)
+- ลำดับความสำคัญ GIF > ภาพพิกเซล > อีโมจิ: `declutter()` เวลาชนกัน (±0.3 วิ) เอาตัวรองออก + เสียง whoosh/pop ที่วางคู่ · เสียง meme ใหม่ 9 ตัว (`build_sfx.py --meme`)
+
+## ใช้ผ่านมือถือ (2026-10-07 — เฉินเครื่องเดียว)
+- `tailscale serve --bg 8765` → https://<ชื่อเครื่อง>.<tailnet>.ts.net (วง Tailscale ของเจ้าของเท่านั้น · ห้ามใช้ funnel = สาธารณะ) · server ยังฟัง 127.0.0.1 ไม่ต้องเปิดไฟร์วอลล์
+- คำขอที่มี header `Tailscale-User-Login`/`X-Forwarded-For` = มาจากนอกเครื่อง → ต้องมี cookie `cc_auth` (HMAC ของ PIN) · ใส่ PIN ที่ /login (PIN ใน `~/.clipcut/pin.txt`, ผิด 8 ครั้ง/15 นาที = ล็อก) — ในวงอาจมีเครื่องคนอื่น
+- มือถือ: หน้าแรกเหมือนเดิม (แตะเลือกคลิป → อัปขึ้นคอม) · editor แบบย่อ `/m` = ดูคลิปที่เรนเดอร์ล่าสุด · ลบ/เปลี่ยน GIF · ลบภาพพิกเซล · แก้คำซับ · เรนเดอร์ (poll `/api/render/status`) · บันทึกผ่าน `/api/video?path=` (เฉพาะ mp4 ในโฟลเดอร์โปรเจกต์ในรายการ)
+- งานหนักยังรันบนคอม → คอมต้องเปิดค้าง
 
 ## Workflow (ทำตามลำดับ — อย่าข้ามขั้นดูคลิป)
 
@@ -58,6 +112,29 @@ python "$S/clipcut.py" "<คลิป>" --transcribe-only
 python "$S/clipcut.py" "<คลิป>" --skip-transcribe --style style.json --keep "44.8-47.6"
 ```
 
+**4b. โหมด editor (ค่าเริ่มต้นเมื่อเฉินอยากได้ SFX/อีโมจิ/ภาพ/ซูม)** — แทนขั้น 4
+```bash
+python "$S/clipcut.py" "<คลิป>" --skip-transcribe --style style.json --keep "..." --edit   # → <ชื่อ>.edit.json
+python "$S/editor/server.py" "<out>/<ชื่อ>.edit.json"     # รันแบบ background — เปิดหน้าต่าง Chrome --app ให้เฉิน
+```
+มี output clipcut เก่าอยู่แล้ว (มี .cut.mp4 + .segments.json) → `python "$S/edit_init.py" <ชื่อ>.segments.json [--style ...] [--keep ...]` แทน
+
+แล้ว**ร่างแผนเอฟเฟกต์ระหว่างที่เฉินดู**: อ่านซับใน edit.json (เวลา = เวลาหลังตัดแล้ว) → เขียน plan.json → 
+`python "$S/edit_apply.py" <edit.json> plan.json --stagger 0.4` (ของเด้งขึ้นจอเฉินทีละชิ้น · `--clear emoji,sfx,fx,broll` = ร่างใหม่ทั้งชุด)
+- **ความแน่น "พอดี"** ≈ 1 จุดต่อ 5-10 วิ ใส่เฉพาะจังหวะที่มีเหตุผล: พีค/ปล่อยมุก/ช็อค/เปลี่ยนเรื่อง/พูดชื่อของ — อย่าโปรยทุกประโยค
+- **SFX ตามจังหวะ**: เปลี่ยนเรื่อง/ภาพโผล่ = `whoosh`/`whoosh_fast` · พีค/reveal = `boom` + fx `punch` · มุก/งง = `boing`/`record_scratch` · ถูก/ได้ = `ding`/`confirm`/`tada` · ผิด/พัง = `buzzer`/`error` · คำถาม = `question` · บิ้วก่อนพีค = `riser` (จบตรงพีค) · อีโมจิโผล่ = `pop` · ทั้งหมด `ls assets/sfx` (36 ตัว) · vol 0.4-0.7 อย่าดังทับเสียงพูด
+- **อีโมจิ** ตามอารมณ์ประโยค (pop = ทั่วไป, shake = ตกใจ/ขำ, float = ล่องลอย/งง) · สลับ x 0.72 / 0.28 ไม่ให้ซ้ำที่เดิมติดกัน
+- **ภาพประกอบ (broll)** = ไฟล์รูปในโฟลเดอร์ output (`broll/`) ตอนพูดชื่อของ/แอป — ไม่มีรูป → gen ด้วย nanobanana ([[image-gen-mcp]]) เก็บใน `<out>/broll/`
+- **fx**: `punch` (เน้นคำ, 0.45s) · `zoomin`/`zoomout` (บิ้ว 2-3s, amount 1.1-1.2) · `shake` (ช็อค) · `flash` (ตัดฉาก)
+- จบแล้วบอกเฉินให้แก้ในหน้าจอได้เลย → เฉินกด **Render** เอง (หรือสั่งกุ้ง `python "$S/render_edit.py" <edit.json>`)
+- ส่งให้เฉินดูจุดไหน: `http://127.0.0.1:<port>/?t=131.1&sel=e5`
+- เฉินแก้ค้างในหน้าเว็บ + กุ้งแก้ไฟล์พร้อมกันได้ — หน้าเว็บ merge ให้ (ของที่เฉินแตะชนะ) แต่**อ่าน edit.json ใหม่ก่อนแก้ทุกครั้ง**
+
+- **เพลง**: ตั้ง `"music": {"src": "<id>", "vol": 0.35, "duck": true, "offset": 0}` ใน edit.json (หรือแท็บ "เพลง" ใน editor) — เลือกตามอารมณ์คลิปจาก `assets/music/music.json` (เทค/สอน = wallpaper, ตลก = fluffing_a_duck, vlog = carefree …) · ไม่มีเพลง → `python "$S/fetch_music.py"` · เพลง CC BY → **บอกเฉินให้ก๊อปเครดิตใส่ใต้คลิป** (render พิมพ์ให้)
+- **ระดับเสียง (อย่าถอย — เฉินด่าแล้ว "เอฟเฟกเสียงดังไป")**: เสียงพูดยกด้วย gain คงที่ไป -16 LUFS (`voice_lufs` ใน edit.json วัดตอนสร้าง) · SFX ทั้งคลังปรับ RMS ช่วงดังสุด = -20 dBFS (`build_sfx.py` → `level_all`) → ×vol×`mix.sfx` (0.8) ≈ เบากว่าเสียงพูด 4-6 dB · เพลง -20 LUFS ×0.35 ≈ เบากว่าเสียงพูด 12 dB + duck อีก 10 dB ตอนพูด · เพิ่ม SFX ใหม่ต้องรัน `level_all` ด้วย ไม่งั้นดังทับเสียงพูด
+
+**render_edit.py**: `[--preview]` (ครึ่งจอ เร็ว) `[--aspect 16x9]` `[--to 30]` (ถึงวินาทีที่ 30 ไว้เทส) → `<ชื่อ>_edit_9x16.mp4` · ~1.5x realtime ที่ 1080x1920
+
 **5. เช็คก่อนส่ง** — ffprobe ความยาว video vs audio ของ output ต้องเท่ากัน (≈ ที่ log บอก "ตัดเหลือ Xs") — เคยหลุดคลิป iPhone VFR ภาพยืด 2 เท่า (แก้แล้วด้วย fps=30 ก่อน select) · ทำ contact sheet ส่องซับ (`fps=2,crop=...,tile=`) + ซูม crop เต็มความละเอียดคำที่มีวรรณยุกต์ซ้อน (ที่/ซึ่ง/น้ำ) — thumbnail เล็กมองสีผิดได้
 
 ## Options
@@ -80,7 +157,22 @@ env: `CLIPCUT_ENGINE=auto|elevenlabs|whisper`, `CLIPCUT_SPEAKERS=<n>` (ถ้า
 - คลิปแนวตั้ง → `<ชื่อ>_9x16.mp4` อย่างเดียว (จับเองจาก ffprobe)
 - `.segments.json` (แก้มือได้) · `.cut.mp4` (หลังตัด dead air) · `.9x16.ass` / `.16x9.ass`
 
+## ตัด dead air 2 รอบ (อย่าถอย — เฉินด่า "ยังรู้สึกถึง dead air หลายจุด" 2026-10-06)
+- รอบ 1 `compute_keep` ตามบท (segment EL + pad 0.15 + รวม gap < 0.6) — **รอดเงียบ ~13% ของคลิป** (73 จุด ≥0.35 วิ)
+- รอบ 2 `tighten_keep` ความดังจริงทุก 10ms: เงียบ ≥ 0.3 วิ → เหลือหายใจ 0.08 วิต่อฝั่ง · เกณฑ์ = เสียงพูด(p95) −22..−30 dB **ไม่นับเงียบสนิท -120 dB** (ไม่งั้นเกณฑ์หลุดไป -90 ไม่ตัดอะไรเลย) → เหลือ 14 จุด ไม่มีเกิน 0.5 วิ
+- `--loose` = ปิดรอบ 2 · `<ชื่อ>.keep.json` เก็บช่วงที่ตัดจริง (edit_init ใช้ตัวนี้ ห้ามคำนวณใหม่ ไม่งั้นซับเลื่อน)
+- ห้ามให้ AI เดาช่วง keep จากภาพนิ่ง — มันกันช่วงยาวไม่ให้ตัด เงียบกลับมา 17 วิ
+- วัดผล: `ffmpeg -i X.cut.mp4 -af silencedetect=n=-38dB:d=0.35 -f null -`
+- select ของภาพต้องเป็น `sum_tree` (บวกแบบต้นไม้) — บวกเรียงเกิน ~100 ช่วง ffmpeg พัง "Cannot allocate memory"
+
+## ตัด dead air ให้ปากตรงเสียง (อย่าถอย — แก้ 2026-10-06)
+- `compute_keep` ปัดขอบทุกช่วงลงกริดเฟรม 30fps · `cut_video` ภาพ = select เลื่อนครึ่งเฟรม `[s, e)` · เสียง = **atrim+concat** (ห้าม aselect — ตัดเป็นก้อน ~21ms) + fade 6ms ที่รอยต่อ
+- ผล: video = audio = ผลรวม keep เป๊ะ (เดิมคลาดสะสม 0.28 วิ ใน 70 รอยตัด → ท้ายคลิปปากไม่ตรงเสียง)
+
 ## กติกาซับไทย (อย่าถอย — บั๊กเก่าที่แก้แล้ว)
+- ตัดคำด้วย `thai_tok()` = newmm + `SLANG` (แม่ง/เหี้ย/เว้ย/ป่ะ…) — ไม่ใส่ คำแสลงโดนหั่น "แม่ | ง" · เจอคำแสลงใหม่โดนหั่น → เติมใน `SLANG`
+- `merge_midword()` ต่อ segment ที่ ElevenLabs ตัดกลางคำ ("เห" | "มือนกับ", "โ" | "อเค" — ห่างกันได้ถึง 1.5 วิ) อัตโนมัติใน `phrase_chunks`
+- **เทส editor/เอฟเฟกต์ต้องใช้ output ที่รัน v2+ ใหม่** — อย่าหยิบ clipcut_out เก่า (whisper ไม่มีเวลารายคำ ซับค้างจอ 10 วิ) มาเทส (พลาดมาแล้ว 2026-10-06 เฉินด่า "แบบเก่ายังทำได้ดีกว่า")
 - render ด้วย filter **`ass` + `shaping=complex`** — `subtitles=` จัดวรรณยุกต์แบบ simple → ซ้อน/หาย (ดู [[libass-thai-shaping-complex]])
 - Style **Spacing = 0** เสมอ · ฟอนต์ต้องมี GPOS (ห้าม Tahoma)
 - สี inline `{\c&HBBGGRR&}` 6 หลัก
@@ -92,8 +184,16 @@ $env:FFMPEG  = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Gyan.
 $env:FFPROBE = (Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Gyan.FFmpeg*" -Recurse -Filter ffprobe.exe | Select -First 1).FullName
 ```
 
+## Editor — โครงสร้าง
+- `edit.json` = แหล่งความจริงตัวเดียว: `items[{id, track: sub|broll|emoji|sfx|fx, start, end, ...}]` (schema ใน `edit_init.py`)
+- `editor/server.py` (Python stdlib) + `index.html/app.js/app.css` — พรีวิว canvas, SSE sync 2 ทาง, ปุ่ม Render
+- `render_edit.py` — ffmpeg: blur bg → zoompan (zoom/shake) → eq (flash) → overlay ภาพ → overlay อีโมจิ (เฟรม PNG จาก PIL) → ass ซับ · เสียง adelay+amix+alimiter
+- `ccfx.py` — สูตร anim/zoom ที่ต้อง**ตรงกับ app.js** (แก้ฝั่งหนึ่งต้องแก้อีกฝั่ง ไม่งั้นพรีวิวไม่ตรงของจริง)
+- ซับพรีวิว: libass คิด Fontsize = winAscent+winDescent ของ OS/2 → `FONT_METRIC` ใน app.js (Mali em = 0.471×size) — เพิ่มฟอนต์ใหม่ต้องเติมค่า
+- อีโมจิ = Segoe UI Emoji วาดเป็นสติกเกอร์ขอบขาว แคชที่ `assets/emoji/` (gitignore — ฟอนต์ MS ห้ามแจก)
+- SFX `assets/sfx/` = สังเคราะห์เอง + Kenney CC0 → `build_sfx.py [kenney_dir]` สร้างใหม่ได้
+
 ## Phase 2 (ยังไม่ทำ)
-- b-roll: gen ภาพตาม keyword ด้วย nanobanana → overlay timestamp
 - intro/outro: video-as-code (Hyperframe) ธีม ChenLab
 - 9:16 reframe แบบ smart (track หน้า/จอ แทน blur bg)
 

@@ -1,3 +1,11 @@
 __pycache__/
 scripts.bak-*/
 *.pyc
+assets/emoji/
+*.edit.json.tmp
+assets/music/*.mp3
+assets/pixel/_brands/
+remotion/node_modules
+remotion/public/jobs/
+assets/gif/
+remotion/public/pixel

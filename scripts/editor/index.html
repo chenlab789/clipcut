@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clipcut editor</title>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/" title="กลับหน้าแรก"><span class="logo"></span>ClipCut</a>
+  <span class="sep"></span>
+  <button class="projBtn" id="projName" title="คลิกเพื่อตั้งชื่องาน"></button>
+  <div class="status" id="saveState">กำลังโหลด…</div>
+  <div class="spacer"></div>
+  <div class="seg" id="aspectSeg" title="ขนาดคลิปที่จะเรนเดอร์">
+    <button data-aspect="9x16">9:16</button><button data-aspect="16x9">16:9</button>
+  </div>
+  <div class="grp">
+    <button class="ib" id="btnUndo" title="ย้อน (Ctrl+Z)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+    <button class="ib" id="btnRedo" title="ทำซ้ำ (Ctrl+Y)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+  </div>
+  <button class="ghost" id="btnTheme" title="สลับธีมสว่าง/มืด">ธีมสว่าง</button>
+  <button id="btnPreviewRender" title="เรนเดอร์เร็ว ความละเอียดครึ่งเดียว ไว้เช็คของจริง">เรนเดอร์ทดสอบ</button>
+  <button class="primary" id="btnRender">Render</button>
+</header>
+
+<main class="work">
+  <section class="stage">
+    <div class="canvasWrap" id="canvasWrap">
+      <canvas id="cv"></canvas>
+    </div>
+    <div class="transport">
+      <button class="ib" id="btnStart" title="ไปต้นคลิป (Home)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14M18 6l-8 6 8 6z"/></svg></button>
+      <button class="ib" id="btnPrevF" title="ถอย 1 เฟรม (←)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+      <button id="btnPlay" class="playBtn" title="เล่น/หยุด (Space)">เล่น</button>
+      <button class="ib" id="btnNextF" title="เดินหน้า 1 เฟรม (→)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+      <div class="time"><span id="tCur">0:00.00</span> <span class="muted">/ <span id="tDur">0:00</span></span></div>
+      <div class="spacer"></div>
+      <label class="chk"><input type="checkbox" id="chkSfx" checked> เสียงเอฟเฟกต์</label>
+      <label class="chk"><input type="checkbox" id="chkSafe"> เส้นขอบปลอดภัย</label>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="panel" id="inspector">
+      <div class="panelHead" id="inspHead">แก้ค่า</div>
+      <div class="panelBody" id="inspBody"><p class="muted">คลิกของบน timeline หรือบนจอเพื่อแก้</p></div>
+    </div>
+    <div class="panel lib">
+      <div class="tabs" id="libTabs">
+        <button data-tab="gif" class="on">GIF</button>
+        <button data-tab="sfx">เสียง</button>
+        <button data-tab="broll">ภาพ</button>
+        <button data-tab="fx">เอฟเฟกต์</button>
+        <button data-tab="music">เพลง</button>
+        <button data-tab="sub">ซับ</button>
+      </div>
+      <div class="panelBody" id="libBody"></div>
+      <p class="hint">คลิกเพื่อวางที่ตำแหน่งหัวเล่น</p>
+    </div>
+  </aside>
+</main>
+
+<section class="tl" id="tl">
+  <div class="tlBar">
+    <span class="muted">Timeline</span>
+    <div class="spacer"></div>
+    <label class="chk"><input type="checkbox" id="chkSnap" checked> ดูดติด</label>
+    <label class="zoom">ซูม <input type="range" id="tlZoom" min="8" max="400" value="60"></label>
+  </div>
+  <div class="tlInner">
+    <div class="tlHeads" id="tlHeads"></div>
+    <div class="tlScroll" id="tlScroll">
+      <div class="tlContent" id="tlContent">
+        <div class="ruler" id="ruler"><canvas id="wave"></canvas></div>
+        <div class="tracks" id="tracks"></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="drawer" id="drawer">
+  <div class="drawerHead"><span id="drawerTitle">Render</span><div class="spacer"></div>
+    <button class="ghost" id="btnCancelRender">ยกเลิก</button>
+    <button class="ghost" id="btnCloseDrawer">ปิด</button></div>
+  <pre id="log"></pre>
+</div>
+<div class="toast" id="toast"></div>
+<video id="vid" playsinline preload="auto" crossorigin="anonymous"></video>
+<script src="/app.js"></script>
+</body>
+</html>

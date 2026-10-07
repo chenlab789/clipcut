@@ -1,0 +1,742 @@
+#!/usr/bin/env python
+"""ClipCut — โปรแกรมตัดคลิปบนเครื่อง (หน้าต่าง Chrome --app)
+
+  python server.py                 หน้าแรก: ลากคลิปวาง → เลือกแบบ → AI ทำให้ → เข้า editor
+  python server.py <คลิป.mp4>       เปิดหน้าแรกพร้อมคลิปนี้ (ลากไฟล์ใส่ไอคอน Desktop = แบบนี้)
+  python server.py <ชื่อ>.edit.json  เปิด editor ตรง
+  [--port 8765] [--no-open]
+
+- หน้าแรก (home.html): ลากวาง / ตัวเลือก / แถบความคืบหน้า autopilot.py / โปรเจกต์ล่าสุด
+- editor (index.html): พรีวิวสด + timeline · เฉินแก้ในเบราว์เซอร์ → เซฟลงไฟล์ · กุ้งแก้ไฟล์ → หน้าเว็บอัปเดตเอง (SSE)
+- ปุ่ม Render → render_edit.py (log สดในหน้าเว็บ)
+- เปิดซ้ำตอนตัวเดิมรันอยู่ → ส่งไฟล์ให้ตัวเดิม (ตัวเดียวพอ)
+"""
+import os
+import sys
+import json
+import time
+import hashlib
+import argparse
+import mimetypes
+import threading
+import subprocess
+import webbrowser
+import urllib.request
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from urllib.parse import unquote, urlparse, parse_qs
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # pythonw ไม่มี stdout
+    pass
+UI = os.path.dirname(os.path.abspath(__file__))
+SCRIPTS = os.path.dirname(UI)
+sys.path.insert(0, SCRIPTS)
+import ccfx  # noqa: E402
+import pixel  # noqa: E402
+
+SKILL_PIX = pixel.PIX
+
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("font/ttf", ".ttf")
+
+EDIT = PROJ = None
+# rev เริ่มจากเวลา (ไม่ใช่ 0) — server รีสตาร์ทแล้วหน้าต่างเก่าที่ยังเปิดอยู่ต้องไม่มีเลขตรงกันโดยบังเอิญ
+# (เคยเกิด: หน้าเก่าส่ง base_rev ตรงพอดี → เซฟข้อมูลเก่าทับ ข้อมูลหน้า/โฟกัสที่เพิ่งทำหาย)
+state = {"hash": None, "rev": int(time.time()), "render": None, "staged": None}
+job = {"state": "idle"}
+clients = []  # queue ของ SSE แต่ละแท็บ
+lock = threading.Lock()
+PORT = 8765
+RECENT = os.path.join(os.path.expanduser("~"), ".clipcut", "recent.json")
+VIDEO_EXT = (".mp4", ".mov", ".mkv", ".m4v", ".webm", ".avi")
+
+
+def projects_root():
+    """โปรเจกต์ใหม่ไปอยู่ที่นี่ (ตั้งเองได้ด้วย env CLIPCUT_HOME)"""
+    r = os.environ.get("CLIPCUT_HOME")
+    if not r:
+        r = (r"D:\ChenLab-Recordings\clipcut" if os.path.isdir(r"D:\ChenLab-Recordings")
+             else os.path.join(os.path.expanduser("~"), "Videos", "clipcut"))
+    os.makedirs(r, exist_ok=True)
+    return r
+
+
+def file_hash():
+    if not EDIT:
+        return None
+    try:
+        with open(EDIT, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+    except FileNotFoundError:
+        return None
+
+
+def broadcast(event, data):
+    msg = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode("utf-8")
+    with lock:
+        for q in list(clients):
+            q.append(msg)
+
+
+def watcher():
+    """ไฟล์เปลี่ยนจากข้างนอก (กุ้งแก้) → บอกทุกแท็บให้โหลดใหม่"""
+    while True:
+        time.sleep(0.4)
+        if not EDIT:
+            continue
+        h = file_hash()
+        if h and h != state["hash"]:
+            try:
+                data = ccfx.load_edit(EDIT)
+            except Exception:
+                continue  # เขียนไม่เสร็จ/JSON พัง — รอรอบหน้า
+            state["hash"] = h
+            state["rev"] += 1
+            broadcast("edit", {"rev": state["rev"], "edit": data, "by": "file"})
+
+
+# ---------- โปรเจกต์ ----------
+def recent_list():
+    try:
+        return [p for p in json.load(open(RECENT, encoding="utf-8")) if os.path.exists(p)]
+    except Exception:
+        return []
+
+
+def save_recent(lst):
+    os.makedirs(os.path.dirname(RECENT), exist_ok=True)
+    json.dump(lst[:30], open(RECENT, "w", encoding="utf-8"), ensure_ascii=False)
+
+
+def open_project(edit):
+    """สลับ editor ไปโปรเจกต์นี้"""
+    global EDIT, PROJ
+    edit = os.path.abspath(edit)
+    E = ccfx.load_edit(edit)
+    proj = os.path.dirname(edit)
+    if "voice_lufs" not in E:  # edit.json รุ่นเก่า → วัดความดังเสียงพูดเพิ่ม
+        E["voice_lufs"] = round(ccfx.measure_lufs(os.path.join(proj, E["video"])), 1)
+        E.setdefault("mix", dict(ccfx.MIX_DEFAULT)); E.setdefault("music", None)
+        ccfx.save_edit(edit, E)
+    EDIT, PROJ = edit, proj
+    threading.Thread(target=make_proxy, args=(edit,), daemon=True).start()
+    state["hash"] = file_hash()
+    state["rev"] += 1
+    save_recent([edit] + [p for p in recent_list() if os.path.normcase(p) != os.path.normcase(edit)])
+
+
+def proxy_path(edit):
+    E = ccfx.load_edit(edit)
+    return os.path.join(os.path.dirname(edit), os.path.splitext(E["video"])[0] + ".proxy.mp4")
+
+
+def make_proxy(edit):
+    """ไฟล์พรีวิว 540 px + keyframe ทุก 0.5 วิ — ไฟล์เต็ม 1080×1920 seek ช้า พรีวิวใน editor ภาพค้าง
+    (เรนเดอร์จริงยังใช้ไฟล์เต็ม)"""
+    E = ccfx.load_edit(edit)
+    src = os.path.join(os.path.dirname(edit), E["video"])
+    dst = proxy_path(edit)
+    if os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+        return
+    tmp = dst + ".tmp.mp4"
+    r = subprocess.run([ccfx_ff(), "-y", "-v", "error", "-i", src, "-vf", "scale='if(gt(iw,ih),960,540)':-2",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-g", "15", "-keyint_min", "15",
+                        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", tmp],
+                       capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if r.returncode == 0:
+        os.replace(tmp, dst)
+        if EDIT and os.path.normcase(EDIT) == os.path.normcase(edit):
+            broadcast("proxy", {"proxy": os.path.basename(dst)})
+
+
+def ccfx_ff():
+    return os.environ.get("FFMPEG", "ffmpeg")
+
+
+def project_info(edit):
+    d = os.path.dirname(edit)
+    name = os.path.basename(edit)[: -len(".edit.json")]
+    outs = sorted((f for f in os.listdir(d) if f.startswith(name + "_") and f.endswith(".mp4")),
+                  key=lambda f: os.path.getmtime(os.path.join(d, f)))  # ล่าสุดอยู่ท้าย
+    try:
+        E = ccfx.load_edit(edit)
+        dur, n = E.get("duration", 0), len([x for x in E["items"] if x["track"] != "sub"])
+        n += len(E.get("scenes") or [])
+        title, mode, aspect, video = E.get("title") or name, E.get("mode") or "fx", E.get("aspect", "9x16"), E.get("video")
+    except Exception:
+        dur, n, title, mode, aspect, video = 0, 0, name, "fx", "9x16", None
+    return {"edit": edit, "name": name, "title": title, "mode": mode, "aspect": aspect, "dir": d,
+            "mtime": os.path.getmtime(edit), "duration": dur, "fx": n, "outputs": [os.path.join(d, f) for f in outs],
+            "thumb": bool(video) or os.path.exists(os.path.join(d, "_frames.jpg"))}
+
+
+def thumb_path(edit):
+    """ภาพปกโปรเจกต์ = เฟรมเดียวจากคลิปที่ตัดแล้ว (ช่วง 1/3) · ทำครั้งเดียวเก็บเป็น _thumb.jpg"""
+    d = os.path.dirname(edit)
+    out = os.path.join(d, "_thumb.jpg")
+    if os.path.exists(out):
+        return out
+    try:
+        E = ccfx.load_edit(edit)
+        subprocess.run([ccfx_ff(), "-y", "-v", "error", "-ss", f"{E.get('duration', 3) / 3:.2f}", "-i",
+                        os.path.join(d, E["video"]), "-frames:v", "1", "-vf", "scale=-2:360", out],
+                       capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception:
+        pass
+    return out if os.path.exists(out) else os.path.join(d, "_frames.jpg")
+
+
+def run_job(src, opts):
+    """autopilot.py ทั้งสาย → แถบความคืบหน้าในหน้าแรก → จบแล้วเปิด editor"""
+    base = os.path.splitext(os.path.basename(src))[0]
+    out = os.path.join(projects_root(), base)
+    job.clear()
+    job.update(state="running", name=base, src=src, step=0, total=5, msg="เริ่ม", prog=0, log=[], edit=None)
+    broadcast("job", job)
+    cmd = [sys.executable, "-u", os.path.join(SCRIPTS, "autopilot.py"), src, "--out", out,
+           "--opts", json.dumps(opts, ensure_ascii=False)]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                         errors="replace", bufsize=1, env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    job["pid"] = p.pid
+    for line in p.stdout:
+        line = line.rstrip()
+        if line.startswith("STEP "):
+            n, _, msg = line[5:].partition(" ")
+            job["step"], job["total"] = (int(x) for x in n.split("/"))
+            job["msg"] = msg
+        elif line.startswith("PROG "):
+            job["prog"] = int(line[5:])
+            broadcast("job", job)
+            continue
+        elif line.startswith("EDIT "):
+            job["edit"] = line[5:]
+        job["log"] = (job["log"] + [line])[-80:]
+        broadcast("job", job)
+    p.wait()
+    job.pop("pid", None)
+    if p.returncode == 0 and job.get("edit"):
+        open_project(job["edit"])
+        job["state"] = "done"
+    else:
+        job["state"] = "error"
+    broadcast("job", job)
+
+
+def keep_focus(new, disk):
+    """ฉากที่หน้าเว็บส่งมาไม่มี focus แต่บนดิสก์มี (ฉากเดียวกัน = เวลาเริ่มใกล้กัน) → เก็บของดิสก์ไว้"""
+    old = disk.get("scenes") or []
+    for sc in new.get("scenes") or []:
+        if "focus" not in sc:
+            m = next((o for o in old if abs(o["start"] - sc["start"]) < 0.05 and "focus" in o), None)
+            if m:
+                sc["focus"] = m["focus"]
+
+
+def list_assets():
+    sfx = sorted(f[:-4] for f in os.listdir(ccfx.SFX_DIR) if f.endswith(".wav"))
+    imgs = []
+    for root, _, files in os.walk(PROJ):
+        if os.path.relpath(root, PROJ).count(os.sep) > 1:
+            continue
+        for f in files:
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")) and not f.startswith("_"):
+                imgs.append(os.path.relpath(os.path.join(root, f), PROJ).replace("\\", "/"))
+    return {"sfx": sfx, "images": sorted(imgs), "music": ccfx.music_list(),
+            "voice_lufs_target": ccfx.VOICE_LUFS, "mix_default": ccfx.MIX_DEFAULT,
+            "music_default": ccfx.MUSIC_DEFAULT, "emoji": ccfx.EMOJI_PALETTE, "fx": ccfx.FX_TYPES,
+            "fx_default": ccfx.FX_DEFAULT,
+            "fonts": sorted(f for f in os.listdir(ccfx.FONTS) if f.endswith(".ttf"))}
+
+
+def run_render(opts):
+    out = opts.get("out") or None
+    if ccfx.load_edit(EDIT).get("mode") == "explainer":  # แบบจัดฉาก → Remotion
+        cmd = [sys.executable, "-u", os.path.join(SCRIPTS, "explainer.py"), "render", EDIT]
+    else:
+        cmd = [sys.executable, "-u", os.path.join(SCRIPTS, "render_edit.py"), EDIT]
+        if opts.get("aspect"):
+            cmd += ["--aspect", opts["aspect"]]
+    if opts.get("preview"):
+        cmd += ["--preview"]
+    if out:
+        cmd += ["--out", out]
+    broadcast("render", {"line": "▶ " + " ".join(os.path.basename(c) for c in cmd[2:]), "state": "running"})
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                         text=True, encoding="utf-8", errors="replace", bufsize=1,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    state["render"] = p
+    state["rstate"], state["rlog"], state["rout"] = "running", [], None  # มือถือ poll /api/render/status
+    result = None
+    for line in p.stdout:
+        line = line.rstrip()
+        if line.startswith("OUTPUT "):
+            result = line[7:]
+        state["rlog"] = (state["rlog"] + [line])[-40:]
+        broadcast("render", {"line": line, "state": "running"})
+    p.wait()
+    state["render"] = None
+    state["rstate"], state["rout"] = ("done" if p.returncode == 0 else "error"), result
+    broadcast("render", {"line": "", "state": "done" if p.returncode == 0 else "error",
+                         "output": result, "code": p.returncode})
+
+
+# ---------- ใช้ผ่านมือถือ (tailscale serve → https://chenlab.<tailnet>.ts.net) ----------
+# server ยังฟังแค่ 127.0.0.1 · tailscale serve ส่งต่อเข้ามาพร้อม header Tailscale-User-Login / X-Forwarded-For
+# คำขอจากนอกเครื่อง = ต้องมี cookie ที่ได้จากการใส่ PIN (ในวง Tailscale มีเครื่องคนอื่นด้วย)
+AUTH_DIR = os.path.join(os.path.expanduser("~"), ".clipcut")
+
+
+def _auth_file(name, make):
+    p = os.path.join(AUTH_DIR, name)
+    if not os.path.exists(p):
+        os.makedirs(AUTH_DIR, exist_ok=True)
+        open(p, "w", encoding="utf-8").write(make())
+    return open(p, encoding="utf-8").read().strip()
+
+
+def pin_code():
+    import secrets
+    return _auth_file("pin.txt", lambda: f"{secrets.randbelow(10 ** 6):06d}")
+
+
+def auth_token():
+    import hmac
+    import secrets
+    key = _auth_file("secret.txt", lambda: secrets.token_hex(32))
+    return hmac.new(key.encode(), ("clipcut:" + pin_code()).encode(), "sha256").hexdigest()
+
+
+pin_fails = []  # เวลาที่ใส่ PIN ผิด (กันเดา: ผิด 8 ครั้งใน 15 นาที = ล็อก)
+
+LOGIN_HTML = """<!doctype html><html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ClipCut</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#060606;color:#e8eceb;font:16px "Segoe UI",system-ui,sans-serif}
+form{width:min(320px,90vw);display:flex;flex-direction:column;gap:14px;text-align:center}
+b{font-size:22px}input{font-size:28px;letter-spacing:10px;text-align:center;padding:12px;border-radius:12px;border:1px solid #2a2f2e;background:#101111;color:#fff}
+button{padding:14px;border-radius:12px;border:0;background:#10b981;color:#031a12;font-weight:700;font-size:17px}p{color:#ff8a8a;min-height:1em;margin:0}</style></head>
+<body><form method="post" action="/login"><b>ClipCut</b><span style="color:#7d8584">ใส่ PIN (ดูได้ในคอม)</span>
+<input name="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus><button>เข้า</button><p>%MSG%</p></form></body></html>"""
+
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def remote(self):
+        """มาจากมือถือผ่าน tailscale serve (หรือเครื่องอื่น) — ไม่ใช่หน้าต่างบนคอมเอง"""
+        return bool(self.headers.get("Tailscale-User-Login") or self.headers.get("X-Forwarded-For")
+                     or self.client_address[0] not in ("127.0.0.1", "::1"))
+
+    def authed(self):
+        if not self.remote():
+            return True
+        import hmac
+        from http.cookies import SimpleCookie
+        c = SimpleCookie(self.headers.get("Cookie") or "")
+        return "cc_auth" in c and hmac.compare_digest(c["cc_auth"].value, auth_token())
+
+    def gate(self, path, method):
+        """True = ผ่าน · False = ตอบไปแล้ว (หน้า PIN / 401)"""
+        if path == "/login":
+            if method == "POST":
+                n = int(self.headers.get("Content-Length") or 0)
+                pin = parse_qs(self.rfile.read(n).decode("utf-8", "replace")).get("pin", [""])[0].strip()
+                now = time.time()
+                pin_fails[:] = [t for t in pin_fails if now - t < 900]
+                if len(pin_fails) >= 8:
+                    return self.send_html(LOGIN_HTML.replace("%MSG%", "ผิดหลายครั้ง รอ 15 นาที"), 429)
+                import hmac
+                if hmac.compare_digest(pin, pin_code()):
+                    self.send_response(303)
+                    self.send_header("Set-Cookie", f"cc_auth={auth_token()}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax")
+                    self.send_header("Location", "/")
+                    self.end_headers()
+                    return False
+                pin_fails.append(now)
+                return self.send_html(LOGIN_HTML.replace("%MSG%", "PIN ไม่ถูก"), 401)
+            return self.send_html(LOGIN_HTML.replace("%MSG%", ""))
+        if self.authed():
+            return True
+        if path.startswith("/api/"):
+            self.send_json({"ok": False, "error": "ต้องใส่ PIN"}, 401)
+        else:
+            self.send_response(303)
+            self.send_header("Location", "/login")
+            self.end_headers()
+        return False
+
+    def send_html(self, html, code=200):
+        b = html.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+        return False
+
+    def own_video(self, q):
+        """ไฟล์ mp4 ที่อยู่ในโฟลเดอร์ของโปรเจกต์ในรายการเท่านั้น (กันขอไฟล์อื่นในเครื่อง)"""
+        q = os.path.realpath(q or "")
+        dirs = {os.path.realpath(os.path.dirname(e)) for e in recent_list()}
+        return q if q.lower().endswith(".mp4") and os.path.dirname(q) in dirs and os.path.isfile(q) else None
+
+    def send_json(self, obj, code=200):
+        b = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def send_file(self, path, cache=False):
+        if not path or not os.path.isfile(path):
+            return self.send_error(404)
+        size = os.path.getsize(path)
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        rng = self.headers.get("Range")
+        start, end = 0, size - 1
+        if rng and rng.startswith("bytes="):
+            a, _, b = rng[6:].partition("-")
+            if a:
+                start = int(a); end = int(b) if b else size - 1
+            else:
+                start = size - int(b)
+            end = min(end, size - 1)
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        else:
+            self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Cache-Control", "max-age=3600" if cache else "no-cache")
+        self.end_headers()
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = f.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            pass
+
+    def safe_join(self, root, rel):
+        if not root:
+            return None
+        p = os.path.realpath(os.path.join(root, rel))
+        return p if p.startswith(os.path.realpath(root)) else None
+
+    def do_GET(self):
+        url = urlparse(self.path)
+        path = unquote(url.path)
+        if not self.gate(path, "GET"):
+            return
+        if path in ("/m", "/m.html"):  # editor แบบย่อสำหรับมือถือ
+            return self.send_file(os.path.join(UI, "m.html"))
+        if path == "/api/video":  # ดู/โหลดคลิปที่เรนเดอร์บนมือถือ
+            q = self.own_video(parse_qs(url.query).get("path", [""])[0])
+            return self.send_file(q) if q else self.send_error(404)
+        if path == "/api/render/status":
+            return self.send_json({"state": state.get("rstate", "idle"), "log": state.get("rlog", [])[-6:],
+                                   "output": state.get("rout"), "running": bool(state["render"])})
+        if path in ("/", "/home"):
+            return self.send_file(os.path.join(UI, "home.html"))
+        if path in ("/edit", "/index.html"):
+            return self.send_file(os.path.join(UI, "index.html"))
+        if path in ("/app.js", "/app.css", "/home.js", "/player.js", "/theme.js"):
+            return self.send_file(os.path.join(UI, path[1:]))
+        if path == "/favicon.ico":
+            return self.send_file(os.path.join(UI, "clipcut.ico"), cache=True)
+        if path == "/api/ping":
+            return self.send_json({"ok": True, "app": "clipcut"})
+        if path == "/api/home":
+            return self.send_json({"projects": [project_info(p) for p in recent_list()], "root": projects_root(),
+                                   "staged": state["staged"], "job": job, "current": EDIT})
+        if path == "/api/thumb":
+            q = parse_qs(url.query).get("edit", [""])[0]
+            ok = any(os.path.normcase(q) == os.path.normcase(p) for p in recent_list())
+            return self.send_file(thumb_path(q)) if ok else self.send_error(404)
+        if path == "/api/edit":
+            if not EDIT:
+                return self.send_json({"error": "ยังไม่ได้เปิดโปรเจกต์"}, 404)
+            px = proxy_path(EDIT)
+            return self.send_json({"rev": state["rev"], "edit": ccfx.load_edit(EDIT), "name": os.path.basename(EDIT),
+                                   "proxy": os.path.basename(px) if os.path.exists(px) else None})
+        if path == "/api/assets":
+            return self.send_json(list_assets())
+        if path == "/api/events":
+            return self.sse()
+        if path.startswith("/media/"):
+            p = self.safe_join(PROJ, path[7:])
+            return self.send_file(p) if p else self.send_error(403)
+        if path.startswith("/pixel/"):
+            return self.send_file(os.path.join(SKILL_PIX, os.path.basename(path)), cache=True)
+        if path == "/api/pixel":
+            import pixel_gen
+            n, lib = pixel.names(), pixel_gen.lib()
+            return self.send_json({"sprites": n["sprites"], "icons": [{"name": i, "desc": lib.get(i, {}).get("desc", "")} for i in n["icons"]]})
+        if path.startswith("/gif/"):  # คลัง GIF กลาง (assets/gif)
+            import gif_lib
+            p = self.safe_join(gif_lib.ROOT, unquote(path[5:]))
+            return self.send_file(p, cache=True) if p else self.send_error(403)
+        if path == "/api/gifs":
+            import gif_lib
+            return self.send_json({"lib": gif_lib.lib(), "cats": {k: v[0] for k, v in gif_lib.CATS.items()}})
+        if path.startswith("/sfx/"):
+            return self.send_file(os.path.join(ccfx.SFX_DIR, os.path.basename(path)), cache=True)
+        if path.startswith("/music/"):
+            return self.send_file(os.path.join(ccfx.MUSIC_DIR, os.path.basename(path)), cache=True)
+        if path.startswith("/fonts/"):
+            return self.send_file(os.path.join(ccfx.FONTS, os.path.basename(path)), cache=True)
+        if path.startswith("/emoji/"):
+            try:
+                return self.send_file(ccfx.emoji_png(path[7:]), cache=True)
+            except Exception:
+                return self.send_error(404)
+        self.send_error(404)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if not self.gate(path, "POST"):
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        if path == "/api/upload":  # ลากไฟล์ใส่หน้าเว็บ (เบราว์เซอร์ไม่ให้ path จริง) → สตรีมลงโฟลเดอร์โปรเจกต์
+            name = os.path.basename(unquote(self.headers.get("X-Filename") or "clip.mp4"))
+            if not name.lower().endswith(VIDEO_EXT):
+                return self.send_json({"ok": False, "error": "ไม่ใช่ไฟล์วิดีโอ"}, 400)
+            d = os.path.join(projects_root(), os.path.splitext(name)[0])
+            os.makedirs(d, exist_ok=True)
+            dst = os.path.join(d, name)
+            with open(dst, "wb") as f:
+                left = n
+                while left > 0:
+                    chunk = self.rfile.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            return self.send_json({"ok": True, "path": dst})
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError:
+            return self.send_json({"ok": False, "error": "JSON เสีย"}, 400)
+        if path == "/api/edit":
+            if body.get("base_rev") is not None and body["base_rev"] != state["rev"]:
+                # มีคนแก้ไฟล์แทรกระหว่างนั้น → ไม่ทับ ให้หน้าเว็บ merge ก่อน
+                return self.send_json({"ok": False, "conflict": True, "rev": state["rev"],
+                                       "edit": ccfx.load_edit(EDIT)}, 409)
+            new, disk = body["edit"], ccfx.load_edit(EDIT)
+            for k, v in disk.items():  # หน้าเว็บไม่รู้จัก field นี้ (เช่น faces จาก focus.py) → ห้ามเซฟแล้วหาย
+                new.setdefault(k, v)
+            keep_focus(new, disk)
+            ccfx.save_edit(EDIT, new)
+            body["edit"] = new
+            state["hash"] = file_hash()
+            state["rev"] += 1
+            broadcast("edit", {"rev": state["rev"], "edit": body["edit"], "by": body.get("client")})
+            return self.send_json({"ok": True, "rev": state["rev"]})
+        if path == "/api/job":
+            if job.get("state") == "running":
+                return self.send_json({"ok": False, "error": "กำลังทำคลิปอื่นอยู่"}, 409)
+            src = body.get("path")
+            if not src or not os.path.isfile(src):
+                return self.send_json({"ok": False, "error": "ไม่เจอไฟล์"}, 400)
+            state["staged"] = None
+            threading.Thread(target=run_job, args=(src, body.get("opts") or {}), daemon=True).start()
+            return self.send_json({"ok": True})
+        if path == "/api/job/cancel":
+            if job.get("pid"):
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(job["pid"])], capture_output=True)
+            return self.send_json({"ok": True})
+        if path == "/api/open":
+            open_project(body["edit"])
+            return self.send_json({"ok": True})
+        if path == "/api/stage":  # เปิดซ้ำโดยลากไฟล์ใส่ไอคอน → ส่งไฟล์มาให้ตัวที่เปิดอยู่
+            state["staged"] = body.get("path")
+            broadcast("stage", {"path": state["staged"]})
+            return self.send_json({"ok": True})
+        if path == "/api/unstage":
+            state["staged"] = None
+            return self.send_json({"ok": True})
+        if path == "/api/rename":  # ชื่อที่โชว์ (ไฟล์จริงไม่เปลี่ยน)
+            edit = body.get("edit") or EDIT
+            if not edit or not any(os.path.normcase(edit) == os.path.normcase(p) for p in recent_list()):
+                return self.send_json({"ok": False, "error": "ไม่เจอโปรเจกต์"}, 404)
+            E = ccfx.load_edit(edit)
+            E["title"] = str(body.get("title") or "").strip()[:80] or None
+            ccfx.save_edit(edit, E)
+            return self.send_json({"ok": True})
+        if path == "/api/gif/ban":
+            import gif_lib
+            return self.send_json({"ok": gif_lib.ban(str(body.get("gif")))})
+        if path == "/api/gap":  # ตัดเข้า GIF / หยุดภาพ จาก editor: เว้นช่องหรือลบช่อง → สร้างคลิปใหม่ → watcher ส่งให้หน้าเว็บ
+            import gaps
+            if not EDIT:
+                return self.send_json({"ok": False, "error": "ยังไม่ได้เปิดโปรเจกต์"}, 400)
+            E = ccfx.load_edit(EDIT)
+            if body.get("op") == "del":
+                gaps.remove(E, body.get("id"))
+            else:
+                g = gaps.insert(E, gaps.boundary(E, float(body.get("t", 0))), float(body.get("dur", 1.3)))
+                it = {"id": "g" + str(int(time.time() * 1000) % 100000), "track": "gif", "mode": body.get("mode", "cut"),
+                      "start": g["at"], "end": round(g["at"] + g["dur"], 3), "caption": body.get("caption", ""), "gap": g["id"]}
+                if body.get("gif"):
+                    it["gif"] = body["gif"]
+                E["items"].append(it)
+            gaps.build_video(E, PROJ)
+            ccfx.save_edit(EDIT, E)
+            threading.Thread(target=make_proxy, args=(EDIT,), daemon=True).start()
+            return self.send_json({"ok": True})
+        if path == "/api/forget":
+            save_recent([p for p in recent_list() if p != body.get("edit")])
+            return self.send_json({"ok": True})
+        if path == "/api/pixel/new":  # วาดไอคอนใหม่จาก editor (AI วาดตาราง 16×16 → เข้าคลังกลาง)
+            import re as _re
+            import pixel_gen
+            name = _re.sub(r"[^a-z0-9_]", "_", str(body.get("name", "")).lower()).strip("_")[:30]
+            if not name:
+                return self.send_json({"ok": False, "error": "ตั้งชื่อภาษาอังกฤษ"}, 400)
+            ok = name in pixel_gen.ensure({name: body.get("desc") or name}, redraw=bool(body.get("redraw")))
+            return self.send_json({"ok": ok, "name": name, "src": f"pixel/icon_{name}.png"})
+        if path == "/api/cam":  # กล้องตามหน้า: เปิด/ปิด/ซูม/หาหน้าใหม่ (smartcam.py) → เขียนไฟล์ → watcher ส่งให้หน้าเว็บ
+            import smartcam
+            if not EDIT:
+                return self.send_json({"ok": False, "error": "ยังไม่ได้เปิดโปรเจกต์"}, 400)
+
+            def cam_job(edit=EDIT):
+                E = ccfx.load_edit(edit)
+                if body.get("scan") or not E.get("faces"):
+                    import focus
+                    E["faces"] = focus.track_faces(os.path.join(os.path.dirname(edit), E["video"]),
+                                                   [x for x in E["items"] if x["track"] == "sub"])
+                    E = dict(ccfx.load_edit(edit), faces=E["faces"])  # ระหว่างหาหน้า หน้าเว็บอาจเซฟของใหม่มา
+                smartcam.build_path(E, body.get("mode") or ("follow" if body.get("scan") else None), body.get("zoom"))
+                smartcam.size_focus(E)
+                smartcam.refocus(E)
+                ccfx.save_edit(edit, E)
+                return E
+            if body.get("scan"):
+                threading.Thread(target=cam_job, daemon=True).start()
+                return self.send_json({"ok": True, "msg": "กำลังหาหน้าคน… (ไม่กี่วินาที)"})
+            E = cam_job()
+            return self.send_json({"ok": True, "msg": "กล้องตามหน้าแล้ว" if smartcam.cam_on(E) else "ภาพเต็ม (ไม่ตามหน้า)"})
+        if path == "/api/render":
+            if state["render"]:
+                return self.send_json({"ok": False, "error": "กำลังเรนเดอร์อยู่"}, 409)
+            threading.Thread(target=run_render, args=(body,), daemon=True).start()
+            return self.send_json({"ok": True})
+        if path == "/api/render/cancel":
+            if state["render"]:
+                state["render"].kill()
+            return self.send_json({"ok": True})
+        if path == "/api/play":
+            p = body.get("path", "")
+            if p.lower().endswith(".mp4") and os.path.isfile(p):
+                os.startfile(p)
+            return self.send_json({"ok": True})
+        if path == "/api/reveal":
+            p = body.get("path", "")
+            if not (os.path.isabs(p) and os.path.exists(p)):
+                p = self.safe_join(PROJ, p) or PROJ
+            subprocess.Popen(["explorer", "/select,", p] if os.path.isfile(p) else ["explorer", p])
+            return self.send_json({"ok": True})
+        self.send_error(404)
+
+    def sse(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        q = []
+        with lock:
+            clients.append(q)
+        try:
+            self.wfile.write(b": hi\n\n"); self.wfile.flush()
+            idle = 0
+            while True:
+                if q:
+                    with lock:
+                        msgs, q[:] = list(q), []
+                    for m in msgs:
+                        self.wfile.write(m)
+                    self.wfile.flush(); idle = 0
+                else:
+                    time.sleep(0.1); idle += 1
+                    if idle > 150:
+                        self.wfile.write(b": ping\n\n"); self.wfile.flush(); idle = 0
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+        finally:
+            with lock:
+                if q in clients:
+                    clients.remove(q)
+
+
+def open_app(url):
+    """เปิดเป็นหน้าต่างแอป (Chrome/Edge --app = ไม่มีแถบ URL/แท็บ) — ไม่เจอค่อยใช้เบราว์เซอร์ปกติ"""
+    pf = [os.environ.get(k, "") for k in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+    cands = [os.path.join(b, r) for b in pf if b for r in
+             (r"Google\Chrome\Application\chrome.exe", r"Microsoft\Edge\Application\msedge.exe")]
+    exe = next((c for c in cands if os.path.isfile(c)), None)
+    if exe:
+        subprocess.Popen([exe, f"--app={url}", "--window-size=1600,1000",
+                          "--autoplay-policy=no-user-gesture-required"])
+    else:
+        webbrowser.open(url)
+
+
+def already_running(port):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=1) as r:
+            return json.loads(r.read()).get("app") == "clipcut"
+    except Exception:
+        return False
+
+
+def post(port, path, data):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=json.dumps(data).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    urllib.request.urlopen(req, timeout=30).read()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("target", nargs="?", help="คลิปวิดีโอ (รอเลือกแบบ) หรือ <ชื่อ>.edit.json (เปิด editor ตรง)")
+    ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--no-open", action="store_true")
+    a = ap.parse_args()
+    t = os.path.abspath(a.target) if a.target else None
+    is_edit = bool(t and t.endswith(".edit.json"))
+    page = f"http://127.0.0.1:{a.port}/" + ("edit" if is_edit else "")
+
+    if already_running(a.port):  # เปิดซ้ำ → ส่งงานให้ตัวเดิม แล้วเปิดหน้าต่างชี้ไปตัวเดิม
+        if t and is_edit:
+            post(a.port, "/api/open", {"edit": t})
+        elif t:
+            post(a.port, "/api/stage", {"path": t})
+        if not a.no_open:
+            open_app(page)
+        return
+
+    if is_edit:
+        open_project(t)
+    elif t:
+        state["staged"] = t
+    threading.Thread(target=watcher, daemon=True).start()
+    srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
+    srv.daemon_threads = True
+    print(f"🦞 clipcut → {page}", flush=True)
+    if not a.no_open:
+        open_app(page)
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

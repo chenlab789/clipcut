@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipCut</title>
+<link rel="icon" href="/favicon.ico">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/app.css">
+<style>
+  html, body { overflow: auto; }
+  body { font-size: 14px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+  .secHead { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  .secHead h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.2px; }
+  .secHead .muted { font-size: 13px; }
+
+  /* ---------- 1. ลากวาง ---------- */
+  .drop { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 20px; padding: 28px 30px;
+    border: 2px dashed var(--line); border-radius: 16px; cursor: pointer; transition: .15s; background: var(--panel); }
+  .drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+  .drop .ic { width: 64px; height: 64px; border-radius: 16px; background: color-mix(in srgb, var(--accent) 15%, transparent);
+    display: grid; place-items: center; color: var(--accent); }
+  .drop .big { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .drop button { padding: 10px 18px; }
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
+  .flow div { padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; }
+  .flow b { display: block; color: var(--accent); font-size: 12px; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- 2. ตัวเลือก ---------- */
+  .opts { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 0; overflow: hidden; }
+  .optMain { padding: 24px 26px; border-right: 1px solid var(--line); }
+  .optSide { padding: 24px 22px; display: flex; flex-direction: column; gap: 14px; background: var(--panel2); }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+  .mode { text-align: left; padding: 16px 16px 14px; border-radius: 12px; background: var(--bg); border: 1.5px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+  .mode b { font-size: 15px; }
+  .mode span { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+  .mode.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg)); }
+  .mode.on b { color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 26px; }
+  .sect > label, .lbl { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 600;
+    text-transform: none; margin-bottom: 9px; letter-spacing: .2px; }
+  .lbl .spacer { flex: 1; }
+  .lbl a { color: var(--accent); cursor: pointer; font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip { border-radius: 999px; padding: 7px 14px; background: var(--bg); }
+  .chip.on { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: #d6fbe9; }
+  .sw { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .sw button { display: flex; align-items: center; gap: 10px; text-align: left; padding: 9px 12px; background: var(--bg); border-radius: 10px; }
+  .sw button i { width: 30px; height: 18px; border-radius: 9px; background: var(--line); position: relative; flex: 0 0 30px; transition: .15s; }
+  .sw button i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: .15s; }
+  .sw button.on i { background: var(--accent); }
+  .sw button.on i::after { left: 14px; }
+  .sw button span { line-height: 1.3; }
+  .sw button small { display: block; color: var(--muted); font-size: 11.5px; }
+  .file { display: flex; gap: 12px; align-items: center; }
+  .file .ic { width: 44px; height: 44px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); flex: 0 0 44px; }
+  .file b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file > div { min-width: 0; }
+  .sum { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+  .sum li { display: flex; justify-content: space-between; gap: 10px; }
+  .sum li span:first-child { color: var(--muted); }
+  .sum li span:last-child { text-align: right; }
+  .go { width: 100%; padding: 13px; font-size: 15px; margin-top: 8px; }
+
+  /* ---------- 3. กำลังทำ ---------- */
+  .job { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; }
+  .job > div { padding: 24px 26px; }
+  .job > div + div { border-left: 1px solid var(--line); background: var(--panel2); display: flex; flex-direction: column; }
+  .job h3 { margin: 0 0 4px; font-size: 17px; }
+  .bar { height: 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; margin: 14px 0 18px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .steps { list-style: none; padding: 0; margin: 0; }
+  .steps li { padding: 8px 0; display: flex; gap: 12px; align-items: center; color: var(--muted); }
+  .steps li .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); flex: 0 0 18px; }
+  .steps li.now { color: var(--text); font-weight: 600; } .steps li.now .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+  .steps li.ok { color: var(--text); } .steps li.ok .dot { background: var(--accent); border-color: var(--accent); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  pre.jlog { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-height: 220px; max-height: 340px; overflow: auto;
+    font: 12px/1.5 Consolas, monospace; color: #9aa4a2; white-space: pre-wrap; margin: 8px 0 0; }
+
+  /* ---------- 4. โปรเจกต์ ---------- */
+  .projects { margin-top: 40px; }
+  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .pc { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; transition: .15s; }
+  .pc:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); transform: translateY(-2px); }
+  .pc .th { position: relative; aspect-ratio: 4 / 3; background: #0b0c0c; cursor: pointer; overflow: hidden; }
+  .pc .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pc .badge { position: absolute; bottom: 8px; padding: 2px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600;
+    background: rgba(0,0,0,.72); color: #fff; font-variant-numeric: tabular-nums; }
+  .pc .badge.l { left: 8px; } .pc .badge.r { right: 8px; }
+  .pc .badge.done { background: var(--accent); color: #031a12; }
+  .pc .body { padding: 12px 14px 12px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+  .pc .ttl { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc small { color: var(--muted); font-size: 12px; }
+  .pc .acts { display: flex; gap: 4px; margin-top: 10px; align-items: center; }
+  .pc .acts .primary { flex: 1; padding: 6px 0; white-space: nowrap; min-width: 0; }
+  .ib { width: 32px; height: 30px; padding: 0; display: grid; place-items: center; background: transparent; color: var(--muted); }
+  .ib:hover { color: var(--text); background: var(--panel2); }
+  .empty { padding: 34px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; }
+  .err { color: #ff8a8a; }
+  .hidden { display: none !important; }
+  .foot { margin-top: 36px; color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+  .foot a { color: var(--accent); cursor: pointer; }
+
+  @media (max-width: 900px) {
+    .opts, .job { grid-template-columns: 1fr; }
+    .optMain { border-right: 0; border-bottom: 1px solid var(--line); }
+    .job > div + div { border-left: 0; border-top: 1px solid var(--line); }
+    .grid2, .modes, .flow { grid-template-columns: 1fr; }
+    .drop { grid-template-columns: 1fr; text-align: center; justify-items: center; }
+  }
+  /* มือถือ: ไม่มีปุ่มเปิดโฟลเดอร์/เส้นทางในคอม · ช่องลากวางเป็นปุ่มเลือกคลิป */
+  body.mobile [data-a="dir"], body.mobile .foot, body.mobile .flow { display: none !important; }
+  body.mobile .wrap { padding: 16px 14px 48px; }
+  body.mobile .drop { padding: 22px 18px; gap: 12px; }
+  body.mobile .drop .big { font-size: 18px; }
+  body.mobile .pgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  body.mobile .pc .acts .ib[data-a="name"] { display: none; }
+  :root[data-theme="light"] .chip.on { color: #0b5c40; }
+  :root[data-theme="light"] .pc .th { background: #e3e7e5; }
+  :root[data-theme="light"] .pc .badge.done { color: #fff; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo"></span>ClipCut</div>
+  <div class="spacer"></div>
+  <button class="ghost" id="btnTheme" title="สลับธีมสว่าง/มืด">ธีมสว่าง</button>
+  <button id="toEditor" style="display:none">กลับไป editor</button>
+</header>
+
+<main class="wrap">
+  <!-- 1. ลากวาง -->
+  <section id="vDrop">
+    <div class="drop" id="drop">
+      <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></div>
+      <div>
+        <div class="big">ลากคลิปดิบมาวางตรงนี้</div>
+        <div class="muted" id="upStat">mp4 · mov · mkv — AI ตัด ใส่ซับ ใส่เอฟเฟกต์ให้ แล้วเปิด editor ให้เช็คก่อนเรนเดอร์</div>
+      </div>
+      <button class="primary" type="button">เลือกไฟล์</button>
+    </div>
+    <input type="file" id="pick" accept="video/*" hidden>
+    <div class="flow">
+      <div><b>1</b>ลากคลิปเข้ามา</div>
+      <div><b>2</b>เลือกแบบตัดต่อ</div>
+      <div><b>3</b>AI ถอดเสียง ตัด ใส่ของให้</div>
+      <div><b>4</b>เช็คใน editor แล้วกด Render</div>
+    </div>
+  </section>
+
+  <!-- 2. เลือกแบบ -->
+  <section id="vOpts" class="card opts hidden">
+    <div class="optMain">
+      <div class="lbl">แบบตัดต่อ</div>
+      <div class="modes" data-g="mode">
+        <button class="mode" data-v="fx"><b>แปะเอฟเฟกต์</b><span>คลิปเดิมเต็มจอ + ซับ เสียงเอฟเฟกต์ GIF/meme ภาพพิกเซล กล้องตามหน้า ซูมอัจฉริยะ</span></button>
+        <button class="mode" data-v="explainer"><b>Motion Explainer</b><span>จัดฉากพื้นกระดาษ หัวข้อ ภาพพิกเซลทุกประโยค กรอบกล้องย้ายตามฉาก (แนวตั้งเท่านั้น)</span></button>
+      </div>
+      <div class="sect fxOnly" style="margin-bottom:22px">
+        <div class="lbl">ใส่อะไรบ้าง<span class="spacer"></span><a data-p="full">ครบชุด</a><a data-p="subs">ตัด + ซับ</a><a data-p="cut">ตัดอย่างเดียว</a></div>
+        <div class="sw" id="toggles">
+          <button data-k="cut"><i></i><span>ตัด dead air<small>ช่วงเงียบ / พูดติดขัด</small></span></button>
+          <button data-k="subs"><i></i><span>ซับ<small>สีแยกคนพูด + คำเด่น</small></span></button>
+          <button data-k="sfx"><i></i><span>เสียงเอฟเฟกต์<small>ตามจังหวะมุก / พีค</small></span></button>
+          <button data-k="gif"><i></i><span>GIF / meme<small>แปะทับ + ตัดเข้าเต็มจอตอนพีค</small></span></button>
+          <button data-k="broll"><i></i><span>ภาพประกอบพิกเซล<small>ไม่มีไอคอนที่ต้องใช้ AI วาดเพิ่มให้</small></span></button>
+          <button data-k="fx"><i></i><span>ซูมอัจฉริยะ<small>กระแทกตามเสียงเน้น · ซูมไปของที่ยก · กันภาพนิ่ง</small></span></button>
+          <button data-k="cam"><i></i><span>กล้องตามหน้าคนพูด<small>ครอปตามคนที่กำลังพูด</small></span></button>
+          <button data-k="music"><i></i><span>เพลงพื้นหลัง<small>เบาลงเองตอนพูด</small></span></button>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="sect"><label>อารมณ์คลิป</label><div class="chips" data-g="vibe">
+          <button class="chip" data-v="tech">สอน / เทค</button><button class="chip" data-v="funny">ฮา</button>
+          <button class="chip" data-v="vlog">vlog / แกะกล่อง</button><button class="chip" data-v="hype">มันส์</button>
+        </div></div>
+        <div class="sect"><label>ความแน่น</label><div class="chips" data-g="density">
+          <button class="chip" data-v="1">น้อย</button><button class="chip" data-v="2">พอดี</button><button class="chip" data-v="3">แน่นสาย TikTok</button>
+        </div></div>
+        <div class="sect fxOnly"><label>ขนาด</label><div class="chips" data-g="aspect">
+          <button class="chip" data-v="9x16">9:16 แนวตั้ง</button><button class="chip" data-v="16x9">16:9 แนวนอน</button>
+        </div></div>
+      </div>
+    </div>
+    <div class="optSide">
+      <div class="file">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></svg></div>
+        <div><b id="fname"></b><a class="muted" id="changeFile" style="cursor:pointer;font-size:12px">เปลี่ยนคลิป</a></div>
+      </div>
+      <ul class="sum" id="sum"></ul>
+      <button class="primary go" id="go">เริ่มทำ</button>
+      <p class="muted" style="margin:0;font-size:12px;text-align:center">เสร็จแล้วเปิด editor ให้เช็ค · มึงกด Render เอง</p>
+    </div>
+  </section>
+
+  <!-- 3. กำลังทำ -->
+  <section id="vJob" class="card job hidden">
+    <div>
+      <h3 id="jTitle">กำลังทำ</h3>
+      <div class="muted" id="jSub"></div>
+      <div class="bar"><i id="jBar"></i></div>
+      <ul class="steps" id="jSteps"></ul>
+      <div style="display:flex;gap:8px;margin-top:18px"><button class="ghost" id="jCancel">ยกเลิก</button><button id="jBack" class="hidden">กลับ</button></div>
+    </div>
+    <div><div class="lbl">บันทึกการทำงาน</div><pre class="jlog" id="jLog"></pre></div>
+  </section>
+
+  <!-- 4. โปรเจกต์ -->
+  <section class="projects">
+    <div class="secHead"><h2>โปรเจกต์ล่าสุด</h2><span class="muted" id="pCount"></span></div>
+    <div class="pgrid" id="projects"></div>
+  </section>
+  <div class="foot"><span id="root"></span><a id="openRoot">เปิดโฟลเดอร์</a></div>
+</main>
+<script src="/home.js"></script>
+</body>
+</html>

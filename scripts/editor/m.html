@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ClipCut</title>
+<link rel="icon" href="/favicon.ico">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/app.css">
+<style>
+  /* editor แบบย่อสำหรับมือถือ — ดูคลิป · ลบ/เปลี่ยน GIF · ลบภาพ · แก้คำซับ · เรนเดอร์ · บันทึกลงเครื่อง
+     งานละเอียด (ลากตำแหน่ง/ตั้งเวลา/ซูม) ไปทำในคอม */
+  html, body { overflow: auto; height: auto; font-size: 15px; }
+  .top { position: sticky; top: 0; z-index: 5; padding-top: env(safe-area-inset-top); height: auto; min-height: 52px; }
+  .top .ttl { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 14px 16px calc(110px + env(safe-area-inset-bottom)); }
+  .vbox { background: #000; border-radius: 14px; overflow: hidden; position: relative; }
+  .vbox video { width: 100%; max-height: 62vh; display: block; margin: auto; background: #000; }
+  .vlabel { font-size: 12.5px; color: var(--muted); margin: 8px 2px 0; display: flex; gap: 8px; align-items: center; }
+  .vlabel .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .vlabel .dot.ok { background: var(--accent); }
+  h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 22px 2px 8px; display: flex; gap: 8px; }
+  h3 span { color: var(--text); }
+  .row { display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px; margin-bottom: 8px; }
+  .row .th { width: 64px; height: 48px; border-radius: 8px; background: #000; object-fit: contain; flex: 0 0 64px; }
+  .row .info { flex: 1; min-width: 0; }
+  .row .info b { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .info small { color: var(--muted); }
+  .row button { padding: 8px 11px; border-radius: 9px; font-size: 13px; }
+  .row .del { color: #ff8a8a; }
+  .sub { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
+  .sub span { flex: 0 0 44px; color: var(--muted); font-size: 12px; padding-top: 10px; font-variant-numeric: tabular-nums; }
+  .sub textarea { flex: 1; min-height: 40px; font-size: 15px; padding: 8px 10px; border-radius: 10px; resize: none; }
+  .sub.dirty textarea { border-color: var(--accent); }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 8px; }
+  .bar button { flex: 1; padding: 13px 0; border-radius: 12px; font-size: 15px; }
+  .prog { position: fixed; left: 0; right: 0; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 6; background: var(--panel2);
+    border-top: 1px solid var(--line); padding: 8px 16px; font-size: 12.5px; color: var(--muted); display: none; }
+  .prog.on { display: block; }
+  .prog i { display: block; height: 4px; border-radius: 3px; background: var(--accent); margin-top: 6px; width: 0; transition: width .4s; }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 2px; }
+  .more { width: 100%; padding: 10px; border-radius: 10px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <a href="/" class="ib" title="หน้าแรก"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 6-6 6 6 6"/></svg></a>
+  <div class="ttl" id="ttl">ClipCut</div>
+  <span class="status" id="st"></span>
+</header>
+<main class="wrap">
+  <div class="vbox"><video id="v" controls playsinline preload="metadata"></video></div>
+  <div class="vlabel"><span class="dot" id="vdot"></span><span id="vlab"></span></div>
+
+  <h3>GIF / meme <span id="nGif"></span></h3><div id="gifs"></div>
+  <h3>ภาพพิกเซล <span id="nPix"></span></h3><div id="pix"></div>
+  <h3>ซับ <span id="nSub"></span> — แตะแก้คำได้</h3><div id="subs"></div>
+</main>
+<div class="prog" id="prog"><span id="plog">กำลังเรนเดอร์…</span><i id="pbar"></i></div>
+<div class="bar">
+  <button id="bTest" title="ครึ่งความละเอียด เร็ว">เรนเดอร์ทดสอบ</button>
+  <button class="primary" id="bRender">เรนเดอร์จริง</button>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then((r) => r.json());
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), 2400); }
+let E = null, rev = 0, name = "", proxy = null, GIFS = { lib: {}, cats: {} }, outs = [], subsShown = 40;
+
+async function load() {
+  const r = await fetch("/api/edit");
+  if (!r.ok) { location.href = "/"; return; }
+  const j = await r.json();
+  E = j.edit; rev = j.rev; name = j.name; proxy = j.proxy;
+  if (!Object.keys(GIFS.lib).length) GIFS = await fetch("/api/gifs").then((x) => x.json()).catch(() => GIFS);
+  const h = await fetch("/api/home").then((x) => x.json());
+  const p = h.projects.find((x) => h.current && x.edit.toLowerCase() === h.current.toLowerCase());
+  outs = p ? p.outputs : [];
+  paint();
+}
+function paint() {
+  $("#ttl").textContent = E.title || name.replace(".edit.json", "");
+  // คลิปที่เรนเดอร์ล่าสุด (มีเอฟเฟกต์ครบ) · ยังไม่เคยเรนเดอร์ = คลิปดิบที่ตัดแล้ว
+  const out = outs[outs.length - 1], v = $("#v");
+  const src = out ? "/api/video?path=" + encodeURIComponent(out) : "/media/" + encodeURIComponent(proxy || E.video);
+  if (v.dataset.src !== src) { v.dataset.src = src; v.src = src; }
+  $("#vdot").classList.toggle("ok", !!out);
+  $("#vlab").innerHTML = out ? `คลิปที่เรนเดอร์ล่าสุด · <a href="${src}" target="_blank" style="color:var(--accent)">เปิดเพื่อบันทึกลงเครื่อง</a>`
+    : "ยังไม่ได้เรนเดอร์ — นี่คือคลิปที่ตัดแล้ว (ยังไม่มีเอฟเฟกต์)";
+  const gifs = E.items.filter((x) => x.track === "gif").sort((a, b) => a.start - b.start);
+  $("#nGif").textContent = gifs.length;
+  $("#gifs").innerHTML = gifs.map((it) => { const g = GIFS.lib[it.gif];
+    return `<div class="row">${g ? `<video class="th" src="/gif/${g.file}" autoplay loop muted playsinline></video>` : '<div class="th"></div>'}
+      <div class="info"><b>${{ overlay: "แปะทับ", cut: "ตัดเข้าเต็มจอ", freeze: "หยุดภาพ" }[it.mode]}${it.caption ? " · " + esc(it.caption) : ""}</b><small>${fmt(it.start)} · ${esc(g ? g.desc : "")}</small></div>
+      ${it.mode !== "freeze" && g ? `<button data-swap="${it.id}">เปลี่ยน</button>` : ""}<button class="del" data-del="${it.id}">ลบ</button></div>`; }).join("") || '<div class="empty">ไม่มี</div>';
+  const pix = E.items.filter((x) => x.track === "broll").sort((a, b) => a.start - b.start);
+  $("#nPix").textContent = pix.length;
+  $("#pix").innerHTML = pix.map((it) => `<div class="row"><img class="th" src="/media/${encodeURI(it.src)}"><div class="info"><b>${esc(it.src.split("/").pop().replace(/^px_|_[0-9a-f]{10}\.png$/g, "").replace(/_/g, " "))}</b><small>${fmt(it.start)}</small></div>
+      <button class="del" data-del="${it.id}">ลบ</button></div>`).join("") || '<div class="empty">ไม่มี</div>';
+  const subs = E.items.filter((x) => x.track === "sub").sort((a, b) => a.start - b.start);
+  $("#nSub").textContent = subs.length;
+  $("#subs").innerHTML = subs.slice(0, subsShown).map((it) => `<div class="sub"><span>${fmt(it.start)}</span><textarea rows="1" data-sub="${it.id}">${esc(it.text)}</textarea></div>`).join("")
+    + (subs.length > subsShown ? `<button class="more" id="more">แสดงซับอีก ${subs.length - subsShown}</button>` : "");
+  const m = $("#more"); if (m) m.onclick = () => { subsShown += 60; paint(); };
+}
+
+/* ---------- แก้ → บันทึกทั้งไฟล์ (ชนกับคอม = โหลดของล่าสุดแล้วแก้ซ้ำ) ---------- */
+async function saveWith(fn, msg) {
+  fn(E);
+  const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ edit: E, base_rev: rev, client: "mobile" }) });
+  const j = await r.json();
+  if (j.conflict) { E = j.edit; rev = j.rev; fn(E); return saveWith(() => {}, msg); }
+  if (j.ok) { rev = j.rev; toast(msg); paint(); } else toast(j.error || "บันทึกไม่ได้");
+}
+document.addEventListener("click", async (e) => {
+  const d = e.target.closest("[data-del]"), s = e.target.closest("[data-swap]");
+  if (d) {
+    const it = E.items.find((x) => x.id === d.dataset.del); if (!it) return;
+    if (it.gap) { // ตัดเข้า/หยุดภาพ = ต้องต่อคลิปกลับ (สร้างคลิปใหม่ ~ครึ่งนาที)
+      d.disabled = true; d.textContent = "รอ…"; toast("กำลังต่อคลิปกลับ… รอสักครู่");
+      const r = await post("/api/gap", { op: "del", id: it.gap }); toast(r.ok ? "ลบแล้ว" : r.error || "ไม่ได้"); return load();
+    }
+    return saveWith((E) => { E.items = E.items.filter((x) => x.id !== it.id); }, "ลบแล้ว");
+  }
+  if (s) {
+    const it = E.items.find((x) => x.id === s.dataset.swap), cat = GIFS.lib[it.gif]?.cat;
+    const ids = Object.keys(GIFS.lib).filter((k) => GIFS.lib[k].cat === cat);
+    if (ids.length < 2) return toast("หมวดนี้มีตัวเดียว");
+    const next = ids[(ids.indexOf(it.gif) + 1) % ids.length];
+    return saveWith((E) => { const x = E.items.find((y) => y.id === it.id); if (x) x.gif = next; }, "เปลี่ยน GIF แล้ว");
+  }
+});
+document.addEventListener("change", (e) => {
+  const t = e.target.closest("[data-sub]"); if (!t) return;
+  const id = t.dataset.sub, text = t.value.replace(/\n/g, " ").trim();
+  saveWith((E) => { const x = E.items.find((y) => y.id === id); if (x) x.text = text; }, "แก้ซับแล้ว");
+});
+
+/* ---------- เรนเดอร์ ---------- */
+async function render(preview) {
+  const r = await post("/api/render", { preview });
+  if (r.ok === false) return toast(r.error || "เรนเดอร์ไม่ได้");
+  $("#prog").classList.add("on"); $("#bTest").disabled = $("#bRender").disabled = true;
+  const poll = async () => {
+    const s = await fetch("/api/render/status").then((x) => x.json()).catch(() => null);
+    if (s) {
+      const last = [...s.log].reverse().find((l) => /%|เรนเดอร์|วาด/.test(l)) || "";
+      const pc = (last.match(/([\d.]+)%/) || [])[1];
+      $("#plog").textContent = s.state === "running" ? "กำลังเรนเดอร์ " + (pc ? Math.round(pc) + "%" : "…") : s.state === "done" ? "เสร็จแล้ว" : "เรนเดอร์พัง";
+      $("#pbar").style.width = (s.state === "done" ? 100 : +pc || 3) + "%";
+      if (s.state !== "running" && !s.running) {
+        $("#bTest").disabled = $("#bRender").disabled = false;
+        setTimeout(() => $("#prog").classList.remove("on"), 1500);
+        if (s.state === "done") { toast("เสร็จ — กดเล่นดูได้เลย"); await load(); }
+        return;
+      }
+    }
+    setTimeout(poll, 1500);
+  };
+  setTimeout(poll, 800);
+}
+$("#bTest").onclick = () => render(true);
+$("#bRender").onclick = () => render(false);
+load();
+</script>
+</body>
+</html>
