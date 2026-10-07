@@ -4,11 +4,11 @@ const $ = (s) => document.querySelector(s);
 const STEPS_FX = ["ถอดเสียง", "AI ดูคลิป แก้คำเพี้ยน เลือกสไตล์ซับ", "ตัด dead air", "AI วางเอฟเฟกต์ตามบท",
   "วาดไอคอน + ภาพประกอบ + กล้อง / ซูมอัจฉริยะ"];
 const STEPS_EX = ["ถอดเสียง", "AI ดูคลิป แก้คำเพี้ยน เลือกสไตล์ซับ", "ตัด dead air", "AI กำกับฉาก + วาดไอคอนที่ยังไม่มี", "AI ดูภาพหาจุดที่ควรซูม"];
-const KEYS = ["cut", "subs", "sfx", "gif", "broll", "fx", "cam", "music"];
+const KEYS = ["cut", "subs", "sfx", "gif", "broll", "fx", "cam", "music", "voice"];
 const PRESETS = {
-  full: { cut: 1, subs: 1, sfx: 1, emoji: 0, gif: 1, broll: 1, fx: 1, cam: 1, music: 1 },
-  subs: { cut: 1, subs: 1, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, music: 0 },
-  cut: { cut: 1, subs: 0, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, music: 0 },
+  full: { cut: 1, subs: 1, sfx: 1, emoji: 0, gif: 1, broll: 1, fx: 1, cam: 1, music: 1, voice: 1 },
+  subs: { cut: 1, subs: 1, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, music: 0, voice: 1 },
+  cut: { cut: 1, subs: 0, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, music: 0, voice: 1 },
 };
 const VIBE = { tech: "สอน / เทค", funny: "ฮา", vlog: "vlog / แกะกล่อง", hype: "มันส์" };
 const DENS = { 1: "น้อย", 2: "พอดี", 3: "แน่นสาย TikTok" };
@@ -16,6 +16,7 @@ let opts = { ...PRESETS.full, mode: "fx", vibe: "tech", aspect: "9x16", density:
 try { opts = { ...opts, ...JSON.parse(localStorage.getItem("clipcut.opts") || "{}") }; } catch (e) { /* ไม่มีก็ใช้ค่าเริ่มต้น */ }
 if (opts.cam === undefined) opts.cam = 1;
 if (opts.gif === undefined) opts.gif = 1;
+if (opts.voice === undefined) opts.voice = 1;
 opts.emoji = 0; // เลิกใช้อีโมจิแล้ว (เฉินสั่งเอาออก)
 let staged = null;            // คลิปแรก (ใช้เช็คว่ามีคลิปรอทำไหม)
 let clips = [];               // [{path, name, dur, ctime, vertical}] — หลายคลิป = รวมเป็นคลิปเดียว (multiclip.py)
@@ -65,6 +66,7 @@ function stage(path, add) {
 const mmssC = (d) => `${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, "0")}`;
 function paintClips() {
   const multi = clips.length > 1;
+  $("#optClip").textContent = multi ? `${clips.length} คลิป` : (lib.find((x) => x.path === clips[0]?.path)?.title || clips[0]?.name || "");
   $("#fname").textContent = multi ? `${clips.length} คลิป · รวม ${mmssC(clips.reduce((a, c) => a + (c.dur || 0), 0))}` : clips[0]?.name || "";
   document.querySelectorAll(".multiOnly").forEach((el) => el.classList.toggle("hidden", !multi));
   $("#orderRow").classList.toggle("hidden", !multi || opts.kind !== "funny");
@@ -91,12 +93,18 @@ $("#sortTime").onclick = () => { clips.sort((a, b) => (a.ctime || a.name).locale
 $("#addClip").onclick = () => { adding = true; $("#pick").click(); };
 let adding = false;
 $("#changeFile").onclick = () => { staged = null; clips = []; post("/api/unstage"); show("vDrop"); };
+$("#optBack").onclick = () => { $("#changeFile").onclick(); window.scrollTo({ top: 0 }); }; // คลิปยังอยู่ในคลัง เลือกใหม่ได้
 $("#go").onclick = async () => {
   const ex = opts.mode === "explainer";
   if (!ex && !KEYS.some((k) => opts[k])) return alert("เลือกอย่างน้อย 1 อย่าง");
   const send = ex ? { ...opts, subs: 1, sfx: 0, emoji: 0, gif: 0, broll: 0, fx: 0, cam: 0, aspect: "9x16" } : opts;
   if (clips.length > 1 && opts.kind !== "funny") send.order = "manual";
-  const r = await post("/api/job", { paths: clips.map((c) => c.path), opts: send });
+  const b = $("#go"); if (b.disabled) return; b.disabled = true; // กันกดซ้ำ (มือถือ SSE ช้า หน้ายังไม่เปลี่ยน → กดอีกที = "กำลังทำคลิปอื่นอยู่")
+  const r = await post("/api/job", { paths: clips.map((c) => c.path), opts: send }).catch(() => ({ ok: false, error: "ส่งงานไม่ได้" }));
+  b.disabled = false;
+  // เริ่มแล้ว / มีงานวิ่งอยู่ → ไปหน้าความคืบหน้าเลย ไม่ต้องรอ event
+  const h = await fetch("/api/home").then((x) => x.json()).catch(() => null);
+  if (h && h.job && h.job.state === "running") return paintJob(h.job);
   if (!r.ok) alert(r.error);
 };
 
@@ -120,15 +128,33 @@ async function uploadAll(files, add) {
   }
   if (back) show(back);
 }
-function upload(f, grp, tag) {
+// ระหว่างอัป: ต้องอยู่หน้านี้ (มือถือสลับแอป/ล็อกจอ = Safari หยุดส่ง ไฟล์ไม่ครบ) → กันจอดับ + เตือนก่อนออก
+let uploading = 0, wake = null;
+const stayHere = (e) => { e.preventDefault(); e.returnValue = ""; };
+async function holdScreen(on) {
+  uploading += on ? 1 : -1;
+  if (uploading > 0) {
+    addEventListener("beforeunload", stayHere);
+    try { wake = wake || await navigator.wakeLock?.request("screen"); } catch (err) { /* เครื่องไม่รองรับ */ }
+  } else {
+    removeEventListener("beforeunload", stayHere);
+    try { await wake?.release(); } catch (err) { /* ปล่อยแล้ว */ }
+    wake = null;
+  }
+}
+document.addEventListener("visibilitychange", async () => { // กลับมาหน้านี้ระหว่างอัป → ขอกันจอดับใหม่ (ระบบปล่อยเองตอนสลับแอป)
+  if (uploading > 0 && document.visibilityState === "visible") { try { wake = await navigator.wakeLock?.request("screen"); } catch (err) { /* */ } }
+});
+function upload(f, grp, tag, say) {
+  holdScreen(true);
   return new Promise((ok, bad) => {
     const x = new XMLHttpRequest(); x.open("POST", "/api/upload"); x.setRequestHeader("X-Filename", encodeURIComponent(f.name));
     if (grp) x.setRequestHeader("X-Group", grp);
-    x.upload.onprogress = (e) => ($("#upStat").textContent = `กำลังนำเข้า ${tag || ""}${Math.round(100 * e.loaded / e.total)}% (${(e.total / 1048576).toFixed(0)} MB)`);
-    x.onload = () => { const r = JSON.parse(x.responseText); r.ok ? ok(r.path) : bad(r.error); };
-    x.onerror = () => bad("นำเข้าไม่ได้");
+    x.upload.onprogress = (e) => (say || ((m) => ($("#upStat").textContent = m)))(`กำลังนำเข้า ${tag || ""}${Math.round(100 * e.loaded / e.total)}% (${(e.total / 1048576).toFixed(0)} MB)${MOBILE ? " · อย่าเพิ่งออกจากหน้านี้" : ""}`);
+    x.onload = () => { let r; try { r = JSON.parse(x.responseText); } catch (err) { r = { ok: false, error: "อัปไม่สำเร็จ" }; } r.ok ? ok(r.path) : bad(r.error); };
+    x.onerror = () => bad("อัปไม่สำเร็จ (การเชื่อมต่อหลุด) — อัปใหม่อีกที");
     x.send(f);
-  });
+  }).finally(() => holdScreen(false));
 }
 
 /* ---------- ความคืบหน้า ---------- */
@@ -155,6 +181,8 @@ $("#jBack").onclick = () => (staged ? show("vOpts") : show("vDrop"));
 /* ---------- โปรเจกต์ล่าสุด ---------- */
 const ICON = {
   play: '<path d="m8 5 11 7-11 7z"/>',
+  dl: '<path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/>',
+  trash: '<path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   dir: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   name: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   hide: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -176,6 +204,7 @@ function paintProjects(ps) {
         <small>${p.mode === "explainer" ? "Motion Explainer" : "แปะเอฟเฟกต์"} · ${p.aspect.replace("x", ":")} · ${ago(p.mtime)}</small>
         <div class="acts"><button class="primary" data-a="open" data-i="${i}">แก้ไข</button>
           ${p.outputs.length ? `<button class="ib" data-a="play" data-i="${i}" title="ดูคลิปที่เรนเดอร์">${svg("play")}</button>` : ""}
+          ${p.outputs.length && MOBILE ? `<a class="ib" href="/api/video?path=${encodeURIComponent(p.outputs[p.outputs.length - 1])}&dl=1" download title="โหลดคลิปล่าสุดลงเครื่อง">${svg("dl")}</a>` : ""}
           <button class="ib" data-a="name" data-i="${i}" title="ตั้งชื่อ">${svg("name")}</button>
           <button class="ib" data-a="dir" data-i="${i}" title="เปิดโฟลเดอร์">${svg("dir")}</button>
           <button class="ib" data-a="forget" data-i="${i}" title="เอาออกจากรายการ (ไม่ลบไฟล์)">${svg("hide")}</button></div></div></div>`).join("");
@@ -191,6 +220,65 @@ function paintProjects(ps) {
 }
 
 let root = "";
+/* ---------- คลังคลิป: อัปเก็บไว้ก่อน → เลือกแล้วค่อยตัด (ตัดซ้ำได้) ---------- */
+let lib = [], libSel = [], libAll = false, libNaming = false;
+async function loadLib() {
+  const r = await fetch("/api/library").then((x) => x.json()).catch(() => null);
+  if (!r) return;
+  lib = r.clips; libNaming = r.naming; libSel = libSel.filter((p) => lib.some((c) => c.path === p)); paintLib();
+  // AI ยังตั้งชื่อไม่เสร็จ (อัปไม่ถึง 3 นาที) / กำลังสแกนคลิปเก่า → ถามใหม่อีกที
+  clearTimeout(loadLib.t);
+  if (r.naming || r.scanning) loadLib.t = setTimeout(loadLib, 5000);
+}
+function paintLib() {
+  $("#lCount").textContent = lib.length ? lib.length + " คลิป" : "";
+  const shown = libAll ? lib : lib.slice(0, MOBILE ? 6 : 12);
+  $("#library").innerHTML = shown.map((c) => { const k = libSel.indexOf(c.path), t = c.ctime ? new Date(c.ctime) : new Date(c.added * 1000);
+    const fresh = !c.by && libNaming;
+    return `<div class="lc${k >= 0 ? " on" : ""}" data-p="${esc(c.path)}">
+      <div class="th"><img src="/api/clipthumb?path=${encodeURIComponent(c.path)}" loading="lazy" alt=""><span class="chk">${k >= 0 ? k + 1 : ""}</span>
+        <span class="badge l">${c.dur ? mmss(c.dur) : "…"}</span>${c.uses.length ? `<span class="badge r">ตัดแล้ว ${c.uses.length}</span>` : ""}</div>
+      <div class="body"><div class="ttl${fresh ? " wait" : ""}" title="${esc(c.name)}">${esc(fresh ? "AI กำลังตั้งชื่อ…" : c.title)}</div>
+        <small><span>${t.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} ${t.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</span>
+        <button class="ib" data-ren title="ตั้งชื่อ">${svg("name")}</button><button class="ib" data-del title="ลบ (ไปถังขยะ)">${svg("trash")}</button></small></div></div>`; }).join("")
+    || '<div class="empty" style="grid-column:1/-1">ยังไม่มีคลิป — กด "+ อัปเก็บไว้ก่อน" หรือลากคลิปมาวางด้านบน</div>';
+  $("#libMore")?.remove();
+  if (lib.length > shown.length) {
+    $("#library").insertAdjacentHTML("afterend", `<button class="ghost more" id="libMore" type="button">ดูทั้งหมด ${lib.length} คลิป</button>`);
+    $("#libMore").onclick = () => { libAll = true; paintLib(); };
+  }
+  $("#lbar").classList.toggle("hidden", !libSel.length);
+  $("#lSel").textContent = libSel.length > 1 ? `เลือก ${libSel.length} คลิป · รวมเป็นคลิปเดียวตามลำดับที่เลือก` : "เลือก 1 คลิป";
+}
+$("#library").onclick = async (e) => {
+  const card = e.target.closest(".lc"); if (!card) return;
+  const c = lib.find((x) => x.path === card.dataset.p); if (!c) return;
+  if (e.target.closest("[data-ren]")) {
+    const t = prompt("ตั้งชื่อคลิป", c.title); if (t == null) return;
+    await post("/api/library/rename", { path: c.path, title: t }); return loadLib();
+  }
+  if (e.target.closest("[data-del]")) {
+    if (!confirm(`ลบ "${c.title}" ออกจากคลัง?\nไฟล์ไปอยู่ในถังขยะ (กู้คืนได้) · งานที่ตัดไปแล้วไม่หาย`)) return;
+    await post("/api/library/delete", { path: c.path }); return loadLib();
+  }
+  const k = libSel.indexOf(c.path);
+  k >= 0 ? libSel.splice(k, 1) : libSel.push(c.path); paintLib();
+};
+$("#lClear").onclick = () => { libSel = []; paintLib(); };
+$("#lCut").onclick = () => {
+  if (!libSel.length) return;
+  libSel.forEach((p, i) => stage(p, i > 0)); libSel = []; paintLib();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+$("#libAdd").onclick = () => $("#pickLib").click();
+$("#pickLib").onchange = async (e) => {
+  const files = [...e.target.files].filter((f) => /\.(mp4|mov|mkv|m4v|webm|avi)$/i.test(f.name)); e.target.value = "";
+  for (let k = 0; k < files.length; k++) {
+    await upload(files[k], "", `${k + 1}/${files.length} `, (m) => ($("#lCount").textContent = m)).catch((err) => alert(err));
+    loadLib();
+  }
+};
+
 async function refresh() {
   const h = await fetch("/api/home").then((r) => r.json());
   root = h.root; $("#root").textContent = "เก็บงานที่ " + h.root;
@@ -214,5 +302,6 @@ if (MOBILE) {
 }
 const es = new EventSource("/api/events");
 es.addEventListener("job", (e) => paintJob(JSON.parse(e.data)));
+es.addEventListener("library", () => loadLib());
 es.addEventListener("stage", (e) => { const d = JSON.parse(e.data); if (d.path) stage(d.path); });
-paintOpts(); refresh();
+paintOpts(); refresh(); loadLib();

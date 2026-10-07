@@ -77,6 +77,20 @@ def src_to_out(E, t, x, y):
     return focus.to_composite(E, x, y)
 
 
+def hold_on(E, t0, t1, cx, cy):
+    """ช่วง t0-t1 กล้องจัดจุด (cx, cy ของต้นฉบับ) ไว้กลางกรอบ (คำสั่ง "ซูมเข้าขวด") · คืนขนาดกรอบ (w, h) ไว้คำนวณแรงซูม"""
+    if not cam_on(E):
+        return 1.0, 1.0
+    w, h = E["cam"]["w"], E["cam"]["h"]
+    x, y = round(min(max(cx - w / 2, 0), 1 - w), 4), round(min(max(cy - h / 2, 0), 1 - h), 4)
+    a, b = t0 - 0.4, t1 + 0.4
+    pa, pb = cam_at(E, a), cam_at(E, b)
+    p = [k for k in E["cam"]["path"] if not a <= k[0] <= b]
+    p += [[round(a, 3), *pa], [round(t0, 3), x, y], [round(t1, 3), x, y], [round(b, 3), *pb]]
+    E["cam"]["path"] = sorted(p, key=lambda k: k[0])
+    return w, h
+
+
 # ---------- 1. กล้องตามหน้า ----------
 def _speaker_at(subs, t):
     last = None

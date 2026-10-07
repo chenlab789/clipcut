@@ -48,7 +48,8 @@ def fx_exprs(fx, T, k):
             sx.append(f"{a * k:.2f}*{on}*sin({T}*47)")
             sy.append(f"{a * k:.2f}*{on}*sin({T}*61+1)")
         elif it["fx"] == "flash":
-            fl.append(f"{a:.3f}*{on}*exp(-({T}-{s:.3f})*4/{d:.3f})")
+            # clip ก่อน exp — ไม่งั้นช่วงก่อนแฟลชไกลๆ exp ล้น = inf×0 = NaN → eq ทำภาพมืดแดงทั้งช่วง
+            fl.append(f"{a:.3f}*{on}*exp(-clip({T}-{s:.3f},0,{d:.3f})*4/{d:.3f})")
     j = lambda xs: "+".join(xs) if xs else "0"  # noqa: E731
     return "1+" + j(z), j(sx), j(sy), j(fl)
 
@@ -285,7 +286,8 @@ def main():
         cmd = [FF, "-y", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-nostats",
                *inputs, "-/filter_complex", gfile, "-map", "[vout]", "-map", "[aout]",
                "-r", str(FPS), "-c:v", "libx264", *enc, "-c:a", "aac", "-b:a", "192k",
-               "-t", f"{min(a.to or 1e9, E['duration']):.3f}", "-movflags", "+faststart", out]
+               "-t", f"{min(a.to or 1e9, E['duration']):.3f}", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+               "-movflags", "+faststart", out]
         cnt = {t: sum(1 for x in E["items"] if x["track"] == t) for t in ccfx.TRACKS}
         print(f"เรนเดอร์ {aspect} {w}x{h} · ซับ {cnt['sub']} ภาพ {cnt['broll']} อีโมจิ {cnt['emoji']} "
               f"เสียง {cnt['sfx']} เอฟเฟกต์ {cnt['fx']}", flush=True)

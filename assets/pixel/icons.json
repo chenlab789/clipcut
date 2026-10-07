@@ -502,5 +502,89 @@
    "..KdddRKKRdddK..",
    "..KKKKKKKKKKKK.."
   ]
+ },
+ "blue_whale": {
+  "desc": "ปลาวาฬสีฟ้าตัวอ้วนน่ารัก พ่นน้ำจากหัว",
+  "rows": [
+   "...KK.KK........",
+   "..KLLKLLK.......",
+   "...KLLLK........",
+   "....KLK.........",
+   "..KKKLKKKK......",
+   ".KLLLLLLLLKK..KK",
+   "KLZLLLLLLLLLKKLK",
+   "KLLLLLLLLLLLLLLK",
+   "KLLKLLLLLLLLLLK.",
+   "KLLLLLLLLLLLLK..",
+   "KWWrWWWWWWWLLK..",
+   "KWWWWWWWWWWWLK..",
+   ".KWWWWWWWWWWK...",
+   "..KKWWWWWWKK....",
+   "....KKKKKK......",
+   "................"
+  ]
+ },
+ "whale": {
+  "desc": "blue cartoon whale spouting water from its blowhole, cute, simple shapes",
+  "rows": [
+   "..KLK.KK.KLK....",
+   "...KLKLLKLK.....",
+   "....KLLLLK......",
+   ".....KLLK.......",
+   "...KKKKKKKK...K.",
+   "..KLLLLLLLLK.KLK",
+   ".KLZLLLLLLLLLKLK",
+   "KLLKLLLLLLLLLLLK",
+   "KLrLLLLLLLLLLLK.",
+   "KWWWWWLLLLLLLK..",
+   ".KWWWWWWLLLLK...",
+   "..KWWWWWWLLK....",
+   "...KKKKKKKK.....",
+   ".KKTTKKTTKKTTKK.",
+   "KTTTTTTTTTTTTTTK",
+   "KKKKKKKKKKKKKKKK"
+  ]
+ },
+ "orange": {
+  "desc": "round orange fruit with a small green leaf on top, juicy citrus",
+  "rows": [
+   "......KK.KKK....",
+   "......KgKGGGK...",
+   "....KKKgKKKK....",
+   "..KKOOOgOOOOKK..",
+   ".KOOZZOOOOOOOOK.",
+   ".KOZZOOOOOOOOOK.",
+   "KOOZOOOOOOOOOOOK",
+   "KOOOOOOOOOOOOOOK",
+   "KOOOOOOOOOOOOOyK",
+   "KOOOOOOOOOOOOOyK",
+   "KOOOOOOOOOOOOyyK",
+   ".KOOOOOOOOOOyyK.",
+   ".KOOOOOOOOOyyyK.",
+   "..KKOOOOOOyyKK..",
+   "....KKKKKKKK....",
+   "................"
+  ]
+ },
+ "bottle_cap": {
+  "desc": "ฝาขวดน้ำสีส้มกลมๆ มีขอบหยัก",
+  "rows": [
+   "....KK.KK.KK....",
+   "...KOOKOOKOOK...",
+   "..KOOOOOOOOOOK..",
+   ".KOOyyyyyyyyOOK.",
+   ".KOyZZOOOOOOOyK.",
+   "KOOyZOOOOOOOOyOK",
+   ".KOyOOOOOOOOOyK.",
+   "KOOyOOOOOOOOOyOK",
+   ".KOyOOOOOOOOOyK.",
+   "KOOyOOOOOOOOOyOK",
+   ".KOyOOOOOOOOOyK.",
+   ".KOyOOOOOOOOOyK.",
+   ".KOOyyyyyyyyOOK.",
+   "..KOOOOOOOOOOK..",
+   "...KOOKOOKOOK...",
+   "....KK.KK.KK...."
+  ]
  }
 }

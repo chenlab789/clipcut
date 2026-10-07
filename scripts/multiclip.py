@@ -171,7 +171,7 @@ def build(clips, outdir, name, kind="story", order="manual", log=print):
             for sg in segs:
                 if s + a - 0.2 <= sg["start"] and sg["end"] <= s + b + 0.2:
                     g2 = dict(sg, start=round(t + max(0, sg["start"] - s - a), 3), end=round(t + min(d2, sg["end"] - s - a), 3))
-                    for wd in g2.get("words") or []:
+                    for wd in (g2.get("words") or []) + (g2.get("wt") or []):
                         wd["start"] = round(t + max(0, wd["start"] - s - a), 3); wd["end"] = round(t + min(d2, wd["end"] - s - a), 3)
                     new_segs.append(g2)
             parts2.append(p2); nb.append((names[i], t, t + d2)); t += d2

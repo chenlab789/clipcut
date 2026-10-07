@@ -20,7 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ccfx  # noqa: E402
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stdout:  # server รันด้วย pythonw = ไม่มี stdout
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 PREFIX = {"sub": "s", "broll": "b", "gif": "g", "emoji": "e", "sfx": "a", "fx": "z"}
 
 

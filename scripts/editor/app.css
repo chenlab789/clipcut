@@ -35,6 +35,15 @@ video#vid { position: fixed; left: -10px; top: -10px; width: 4px; height: 4px; o
 .seg button.on { background: var(--accent); color: #031a12; font-weight: 600; }
 
 .work { display: flex; height: calc(100% - 46px - var(--tl-h)); min-height: 0; }
+/* ฝังในหน้ามือถือ (/m): เหลือจอพรีวิว + ปุ่มเล่น — ตัววาดเดียวกับ editor (เห็นเอฟเฟกต์โดยไม่ต้องเรนเดอร์) */
+.embed { --tl-h: 0px; }
+.embed body { background: #000; }
+.embed .top, .embed .side, .embed .tl, .embed .drawer, .embed .toast, .embed .transport .chk, .embed #btnStart { display: none !important; }
+.embed .work { height: 100%; }
+.embed .canvasWrap { padding: 0; background: #000; }
+.embed #cv { box-shadow: none; }
+.embed .transport { height: 48px; gap: 10px; padding: 0 10px; background: #0b0c0c; border-top: 0; }
+.embed .transport .playBtn { flex: 0 0 auto; padding: 8px 18px; }
 .stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .canvasWrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 10px;
   background: repeating-conic-gradient(#0b0c0c 0% 25%, #080909 0% 50%) 50% / 24px 24px; }
@@ -223,4 +232,8 @@ kbd { font: 11px/1 Consolas, monospace; padding: 4px 6px; border-radius: 5px; bo
 .spband.m-normal { background: color-mix(in srgb, var(--muted) 25%, transparent); border: 1px solid var(--muted); color: var(--text); }
 .spband.m-cut { background: transparent; border: 1px dashed #ef4444; color: #ef4444; }
 .spband.sel { outline: 2px solid #fde047; }
+.cmdmark { position: absolute; top: 3px; height: 20px; max-width: 160px; padding: 0 7px 0 5px; border-radius: 0 5px 5px 0; z-index: 3;
+  border-left: 2px solid #f472b6; background: color-mix(in srgb, #f472b6 22%, var(--panel)); color: var(--text); font-size: 11px; font-weight: 700;
+  line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cmdmark.bad { border-left-color: #ef4444; background: color-mix(in srgb, #ef4444 22%, var(--panel)); }
 .clipmark { position: absolute; top: 0; bottom: -1000px; width: 0; border-left: 2px dashed #fde047; z-index: 2; pointer-events: auto; }

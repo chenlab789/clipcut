@@ -26,8 +26,9 @@ import edit_init  # noqa: E402
 import edit_apply  # noqa: E402
 import pixel  # noqa: E402
 
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-DEFAULT_OPTS = {"cut": 1, "subs": 1, "sfx": 1, "emoji": 0, "broll": 1, "gif": 1, "fx": 1, "cam": 1, "music": 1,
+if sys.stdout:  # server รันด้วย pythonw = ไม่มี stdout
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+DEFAULT_OPTS = {"cut": 1, "subs": 1, "sfx": 1, "emoji": 0, "broll": 1, "gif": 1, "fx": 1, "cam": 1, "music": 1, "voice": 1,
                 "vibe": "tech", "aspect": "9x16", "density": 2}
 VIBES = {"tech": "สอน/เทค เล่าเรื่องจริงจังแต่กันเอง", "funny": "ฮา กวนตีน เน้นมุก",
          "vlog": "vlog ชีวิตประจำวัน/แกะกล่อง สดใส", "hype": "มันส์ ตื่นเต้น จังหวะเร็ว"}
@@ -151,13 +152,16 @@ def pass1(segs, sheet, opts):
 {lines}
 
 ตอบ JSON:
-{{"fixes": [{{"i": <index>, "text": "<ข้อความที่แก้>"}}],
+{{"title": "<ชื่อคลิปภาษาไทย ≤30 ตัว ตามเนื้อหา>",
+ "fixes": [{{"i": <index>, "text": "<ข้อความที่แก้>"}}],
  "chen": "<speaker id ของเฉิน หรือ null>",
  "style": {{"font": "Mali|Kanit|Itim", "outline": "#hex", "shadow_color": "#hex", "speakers": {{"<speaker id>": "#hex"}}, "highlights": {{"<คำเด่น>": "#hex"}}}},
  "music": "<id เพลง>"}}
 
 กติกา:
+- title: ชื่อที่บอกว่าคลิปนี้เกี่ยวกับอะไร ให้เฉินหาเจอง่ายทีหลัง เช่น "แกะกล่องของขวัญวันเกิดแฟน", "รีวิว Claude Code บน iPhone" ห้ามใส่วันที่/อีโมจิ
 - fixes: แก้เฉพาะคำที่ถอดเพี้ยนชัดๆ จากบริบท โดยเฉพาะชื่อแบรนด์/แอป/ศัพท์อังกฤษ (เช่น "Cort Code"→"Claude Code") ห้ามแก้สำนวนพูด ห้ามเกลาคำหยาบ ไม่แน่ใจ = ไม่แก้
+  คำที่แก้ต้องออกเสียงใกล้ของเดิม (ถอดเพี้ยน) เท่านั้น — ห้ามเปลี่ยนเป็นคำอื่นตามที่เห็นในภาพ (เคยแก้ "ขึ้นรูป…ส้ม" เป็น "ซูมรูป…ขวด" = เฉินไม่ได้พูดแบบนั้น)
 - speakers ที่พบ: {speakers or "ไม่มี (คนเดียว)"} — เฉิน = ฟ้าอ่อน #9AD8FF · คนอื่นสีอ่อนที่ต่างชัด (#FFE066, #FF9AC8) · คนเดียว = {{}}
 - font: เทค/จริงจัง = Kanit, ชิล/น่ารัก = Mali, สบายๆ = Itim · outline/shadow_color = สีเข้มโทนเดียวกับคลิป (ดำได้)
 - highlights: 3-8 คำสำคัญที่พูดบ่อย (ชื่อของ/แอป/คำเด่น) สีตัดกับคลิป ห้ามซ้ำสีคนพูด
@@ -241,10 +245,13 @@ def pass2(items, dur, opts, vertical, peaks=(), role=None):
 
 def declutter(E):
     """ลำดับความสำคัญ GIF > ภาพพิกเซล > อีโมจิ (เฉินให้คะแนนเอง) — ช่วงเวลาชนกัน = เก็บตัวที่สำคัญกว่า"""
-    gifs = [x for x in E["items"] if x["track"] == "gif"]
-    pix = [x for x in E["items"] if x["track"] == "broll"]
     hit = lambda a, b, m=0.3: a["start"] < b["end"] + m and a["end"] > b["start"] - m  # noqa: E731
-    drop = {id(b) for b in pix if any(hit(b, g) for g in gifs)}
+    mine = [x for x in E["items"] if x.get("cmd") and x["track"] in ("gif", "broll")]  # สั่งด้วยเสียง = สำคัญสุด
+    drop = {id(x) for x in E["items"] if x["track"] in ("gif", "broll") and not x.get("cmd") and not x.get("gap")
+            and any(hit(x, m) for m in mine)}
+    gifs = [x for x in E["items"] if x["track"] == "gif" and id(x) not in drop] + [m for m in mine if m["track"] == "broll"]
+    pix = [x for x in E["items"] if x["track"] == "broll" and not x.get("cmd") and id(x) not in drop]
+    drop |= {id(b) for b in pix if any(hit(b, g) for g in gifs)}
     drop |= {id(e) for e in E["items"] if e["track"] == "emoji"
              and any(hit(e, o) for o in gifs + [p for p in pix if id(p) not in drop])}
     gone = [x for x in E["items"] if id(x) in drop]
@@ -268,6 +275,8 @@ def place_gifs(E, plan, outdir, opts):
     for it in sorted((x for x in plan if x.get("track") == "gif" and isinstance(x.get("start"), (int, float))), key=lambda x: x["start"]):
         mode = it.get("mode") if it.get("mode") in ("overlay", "cut", "freeze") else "overlay"
         kind = "overlay" if mode == "overlay" else "cut"
+        if any(abs(it["start"] - c["t"]) < 2.0 for c in E.get("commands") or []):
+            continue  # ตรงนั้นเฉินสั่งเองแล้ว
         if it["start"] - last[kind] < (ov_gap if kind == "overlay" else cut_gap):
             print(f"  ข้าม GIF ที่ {it['start']:.1f} (ถี่เกิน)", flush=True)
             continue
@@ -349,7 +358,14 @@ def main():
         src, seg_json, clips = multiclip.build(multi, outdir, base, opts.get("kind", "story"), opts.get("order", "manual"),
                                                log=lambda m: print(m, flush=True))
     elif not os.path.exists(seg_json):
-        subprocess.run([sys.executable, os.path.join(HERE, "transcribe.py"), src, seg_json, "medium"], check=True)
+        # คลิปในคลัง: ถอดเสียงครั้งเดียวเก็บข้างไฟล์ → ตัดซ้ำรอบหน้าไม่ต้องถอดใหม่
+        cache = src + ".segments.json" if "_library" in src.replace("\\", "/").split("/") else None
+        if cache and os.path.exists(cache):
+            shutil.copy(cache, seg_json); print("  ใช้ผลถอดเสียงเดิมของคลิปนี้", flush=True)
+        else:
+            subprocess.run([sys.executable, os.path.join(HERE, "transcribe.py"), src, seg_json, "medium"], check=True)
+            if cache:
+                shutil.copy(seg_json, cache)
     data = ccfx.load_edit(seg_json)
     segs = data["segments"]
     if not segs:
@@ -361,11 +377,18 @@ def main():
     sheet = contact_sheet(src, os.path.join(outdir, "_frames.jpg"))
     p1 = pass1(segs, sheet, opts)
     json.dump(p1, open(os.path.join(outdir, "_ai_pass1.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    # คำสั่งเสียงตามบริบท ("เอารูปกุ้งขึ้นตรงนี้" / "ซูมเข้าขวด") — หาจากบทดิบก่อนแก้คำ (เคยโดนแก้ "ขึ้นรูปอ่า…ส้ม" → "ซูมรูปขวด")
+    import voicecmd
+    vcmds = voicecmd.detect(segs, ai, list(SFX_DESC)) if opts.get("voice", 1) else []
+    # ซูม: หาของ+จังหวะก่อนตัด dead air — สั่งล่วงหน้า ("ตอนกินน้ำ") เป็นช่วงเงียบ ต้องกันไม่ให้โดนตัด
+    vspots = voicecmd.locate(vcmds, src, os.path.join(outdir, "_focus"), ai) if vcmds else {}
     nfix = 0
     for f in p1.get("fixes", []):
         i = f.get("i")
         if isinstance(i, int) and 0 <= i < len(segs) and f.get("text"):
             segs[i]["text"] = f["text"]; nfix += 1
+    for c in vcmds:
+        print(f"  คำสั่งเสียง {c['t1']:.1f} วิ: \"{c['said']}\" → {c['label']}", flush=True)
     import multiclip
     nre = multiclip.drop_retakes(segs)  # พูดประโยคเดิมซ้ำติดกัน = เก็บเทคสุดท้าย
     if nre:
@@ -386,7 +409,7 @@ def main():
     step(3, "ตัด dead air" if opts["cut"] else "เตรียมคลิป")
     # ไม่ใช้ "keep" ที่ AI เดาจากภาพนิ่ง 8 ช่อง — มันเดาช่วงยาวๆ ว่าต้องเก็บ แล้วช่วงนั้นไม่โดนตัดเงียบ
     # (เทสจริง: เงียบเหลือ 17.6 วิ vs 5.7 วิ ถ้าไม่ใช้) · ช่วงเงียบที่ต้องเก็บจริง → สั่งในแชทด้วย --keep
-    extra = []
+    extra = voicecmd.protect(vspots)
     if opts["cut"]:
         keep = cc.tighten_keep(src, cc.compute_keep(segs, 0.15, 0.6, extra=extra), protect=extra)
     else:
@@ -411,6 +434,8 @@ def main():
     orig, kept = cc.probe_dur(src), cc.probe_dur(cut)
     print(f"  {orig:.0f} วิ → {kept:.0f} วิ (ตัดออก {orig - kept:.0f} วิ)", flush=True)
     E = edit_init.build(seg_json, cut, style, keep, opts["aspect"], cc.probe_wh(src))
+    if p1.get("title"):  # ชื่องานตามเนื้อหา (หน้าแรก/คลังคลิป/ชื่อไฟล์ตอนโหลด)
+        E["title"] = str(p1["title"]).strip()[:60]
     if speeds1:  # เวลาซับคิดจาก keep (= เวลาบน cut1) → เลื่อนตามช่วงที่เร่ง
         for it in E["items"]:
             it["start"] = round(speedup.out_time(it["start"], speeds1), 3)
@@ -548,6 +573,16 @@ def main():
             smartcam.refocus(E)
         except Exception as ex:
             print(f"  ! ซูมอัจฉริยะพัง ใช้ซูมกลางจอแทน: {ex}", flush=True)
+    if vcmds:  # คำสั่งเสียง → เอฟเฟกต์ตอนพูดจบ (หลังกล้องตามหน้า — ตำแหน่งนิ้วต้องแปลงตามกล้อง)
+        def vid(pre):
+            n = 1
+            while any(x.get("id") == f"{pre}{n}" for x in E["items"]):
+                n += 1
+            return f"{pre}{n}"
+        try:
+            voicecmd.apply(E, vcmds, outdir, src, lambda t: speedup.out_time(cc.remap(t, keep), speeds1), set(SFX_DESC), vid, ai, vspots)
+        except Exception as ex:
+            print(f"  ! ทำตามคำสั่งเสียงไม่ได้: {ex}", flush=True)
     if opts.get("gif"):
         try:
             place_gifs(E, plan, outdir, opts)

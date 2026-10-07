@@ -517,7 +517,7 @@ function renderTimeline(flashIds = []) {
     const d = document.createElement("div"); d.className = "tick"; d.style.left = s * pps + "px"; d.textContent = fmt(s, false); ruler.appendChild(d);
   }
   drawWave();
-  ruler.querySelectorAll(".spband,.clipmark").forEach((x) => x.remove());
+  ruler.querySelectorAll(".spband,.clipmark,.cmdmark").forEach((x) => x.remove());
   for (const sp of E.speedups || []) {
     const d = document.createElement("div"), m = sp.mode || "speed";
     d.className = "spband m-" + m + (sel === "sp:" + sp.id ? " sel" : "");
@@ -530,6 +530,14 @@ function renderTimeline(flashIds = []) {
   for (const c of (E.clips || []).slice(1)) {
     const d = document.createElement("div"); d.className = "clipmark"; d.style.left = c.start * pps + "px";
     d.title = "เริ่มคลิป: " + c.name; ruler.appendChild(d);
+  }
+  for (const c of E.commands || []) { // คำสั่งเสียงตามบริบท (voicecmd.py) — คลิก = ไปที่จุดนั้น + เลือกของที่สั่ง
+    const d = document.createElement("div"); d.className = "cmdmark" + (c.ok ? "" : " bad"); d.style.left = c.t * pps + "px";
+    d.textContent = c.label || "คำสั่ง";
+    d.title = `สั่งว่า: "${c.said}"
+→ ${(c.done || []).join(", ") || "ทำไม่ได้ (ทำเองตรงนี้)"}`;
+    d.onclick = (ev) => { ev.stopPropagation(); seek(c.t + 0.01); const it = E.items.find((x) => x.cmd === c.id); if (it) select(it.id); };
+    ruler.appendChild(d);
   }
   const tracks = $("#tracks"); tracks.innerHTML = "";
   for (const tr of trackList()) {
@@ -590,7 +598,7 @@ window.addEventListener("pointerup", () => {
   drag = null;
 });
 let scrub = false;
-$("#ruler").addEventListener("pointerdown", (ev) => { scrub = true; scrubTo(ev); $("#ruler").setPointerCapture(ev.pointerId); });
+$("#ruler").addEventListener("pointerdown", (ev) => { if (ev.target.closest(".cmdmark,.spband")) return; scrub = true; scrubTo(ev); $("#ruler").setPointerCapture(ev.pointerId); });
 $("#ruler").addEventListener("pointermove", (ev) => scrub && scrubTo(ev));
 $("#ruler").addEventListener("pointerup", () => (scrub = false));
 function scrubTo(ev) { const r = $("#tlContent").getBoundingClientRect(); seek((ev.clientX - r.left) / pps); }
@@ -656,6 +664,7 @@ function select(id) { sel = id; renderInspector(); document.querySelectorAll(".i
 function canvasPt(ev) { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * W / r.width, (ev.clientY - r.top) * H / r.height]; }
 let cdrag = null;
 cv.addEventListener("pointerdown", (ev) => {
+  if (document.documentElement.classList.contains("embed")) return; // พรีวิวในมือถือ = ดูอย่างเดียว ห้ามนิ้วไปลากของ
   const [x, y] = canvasPt(ev), t = vid.currentTime;
   const sf = sel && byId(sel);
   if (sf && sf.track === "fx" && sf.fx !== "flash") { // ลากเป้าเล็งจุดซูม

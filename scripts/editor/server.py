@@ -97,16 +97,50 @@ def watcher():
 
 
 # ---------- โปรเจกต์ ----------
-def recent_list():
+HIDDEN = os.path.join(os.path.dirname(RECENT), "hidden.json")
+rlock = threading.Lock()
+
+
+def _jload(f):
     try:
-        return [p for p in json.load(open(RECENT, encoding="utf-8")) if os.path.exists(p)]
+        return json.load(open(f, encoding="utf-8"))
     except Exception:
         return []
 
 
+def _jsave(f, obj):  # เขียนไฟล์ชั่วคราวแล้วสลับ — อ่านพร้อมกันจะไม่เจอไฟล์ว่างครึ่งๆ (เคยทำรายการหายเหลืองานเดียว)
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    t = f + ".tmp"
+    json.dump(obj, open(t, "w", encoding="utf-8"), ensure_ascii=False)
+    os.replace(t, f)
+
+
+def recent_list():
+    """งานที่เพิ่งเปิด (recent.json) + งานอื่นที่อยู่ในโฟลเดอร์โปรเจกต์ (สแกนเอง ล่าสุดก่อน) · ยกเว้นที่กดเอาออก"""
+    with rlock:
+        rec, hid = _jload(RECENT), {os.path.normcase(x) for x in _jload(HIDDEN)}
+    out, seen = [], set()
+    for p in rec:
+        if os.path.exists(p) and os.path.normcase(p) not in seen:
+            out.append(p); seen.add(os.path.normcase(p))
+    root, found = projects_root(), []
+    try:
+        for d in os.scandir(root):
+            if d.is_dir() and not d.name.startswith((".", "_")):
+                for f in os.scandir(d.path):
+                    if f.name.endswith(".edit.json"):
+                        found.append((f.stat().st_mtime, f.path))
+    except OSError:
+        pass
+    for _, p in sorted(found, reverse=True):
+        if os.path.normcase(p) not in seen and os.path.normcase(p) not in hid:
+            out.append(p); seen.add(os.path.normcase(p))
+    return out[:40]
+
+
 def save_recent(lst):
-    os.makedirs(os.path.dirname(RECENT), exist_ok=True)
-    json.dump(lst[:30], open(RECENT, "w", encoding="utf-8"), ensure_ascii=False)
+    with rlock:
+        _jsave(RECENT, lst[:30])
 
 
 def open_project(edit):
@@ -123,7 +157,11 @@ def open_project(edit):
     threading.Thread(target=make_proxy, args=(edit,), daemon=True).start()
     state["hash"] = file_hash()
     state["rev"] += 1
-    save_recent([edit] + [p for p in recent_list() if os.path.normcase(p) != os.path.normcase(edit)])
+    save_recent([edit] + [p for p in _jload(RECENT) if os.path.normcase(p) != os.path.normcase(edit)])
+    with rlock:  # เปิดงานที่เคยเอาออก = กลับมาในรายการ
+        h = _jload(HIDDEN)
+        if any(os.path.normcase(x) == os.path.normcase(edit) for x in h):
+            _jsave(HIDDEN, [x for x in h if os.path.normcase(x) != os.path.normcase(edit)])
 
 
 def proxy_path(edit):
@@ -172,6 +210,44 @@ def project_info(edit):
             "thumb": bool(video) or os.path.exists(os.path.join(d, "_frames.jpg"))}
 
 
+def scan_library():
+    """เปิดโปรแกรม → คลิปที่อัปไว้ก่อนมีคลัง (clips_*/ ต้นฉบับในโฟลเดอร์งาน) เข้าคลังเอง"""
+    import library
+    state["lib_scan"] = True
+    try:
+        if library.scan_old(projects_root(), recent_list()):
+            broadcast("library", {})
+        for p in library.unnamed(projects_root()):  # คลิปเก่าที่ยังไม่มีชื่อ → AI ตั้งให้ (ทีละคลิปเบื้องหลัง)
+            library.name_later(projects_root(), p)
+        for e in recent_list():  # งานเก่าที่ยังไม่มีชื่อ → AI อ่านซับตั้งชื่อ
+            try:
+                if not ccfx.load_edit(e).get("title"):
+                    library.name_later(projects_root(), e)
+            except Exception:
+                pass
+    except Exception as ex:
+        print("สแกนคลังคลิปไม่ได้:", ex, flush=True)
+    finally:
+        state["lib_scan"] = False
+
+
+def dl_name(p):
+    """ชื่อไฟล์ตอนโหลดลงเครื่อง = ชื่องาน (AI ตั้งจากบท) + แบบ · หาเจอง่ายในแอปไฟล์"""
+    import re as _re
+    d, f = os.path.dirname(p), os.path.basename(p)
+    t = None
+    for e in os.listdir(d):
+        if e.endswith(".edit.json"):
+            try:
+                t = ccfx.load_edit(os.path.join(d, e)).get("title")
+            except Exception:
+                pass
+    m = _re.search(r"_(edit|preview|explainer)[^_]*_(\d+x\d+)", f)
+    tag = {"edit": "", "preview": " (ทดสอบ)", "explainer": " (explainer)"}.get(m.group(1), "") if m else ""
+    t = _re.sub(r'[\\/:*?"<>|]', "", t or "").strip()
+    return f"{t}{tag} {m.group(2).replace('x', '-') if m else ''}".strip() + ".mp4" if t else f
+
+
 def thumb_path(edit):
     """ภาพปกโปรเจกต์ = เฟรมเดียวจากคลิปที่ตัดแล้ว (ช่วง 1/3) · ทำครั้งเดียวเก็บเป็น _thumb.jpg"""
     d = os.path.dirname(edit)
@@ -196,6 +272,9 @@ def run_job(src, opts):
     if len(opts.get("clips") or []) > 1:  # โฟลเดอร์ใหม่เสมอ — ไฟล์รวมชื่อ = ชื่อโฟลเดอร์ ห้ามทับคลิปต้นฉบับ
         base = opts["name"] = "multi_" + time.strftime("%Y%m%d_%H%M%S")
         out = os.path.join(projects_root(), base)
+    n = 2
+    while os.path.isdir(out) and any(f.endswith(".edit.json") for f in os.listdir(out)):  # ตัดคลิปเดิมซ้ำ = งานใหม่ ไม่ทับงานเก่า
+        out = os.path.join(projects_root(), f"{base}_{n}"); n += 1
     job.clear()
     job.update(state="running", name=base, src=src, step=0, total=5, msg="เริ่ม", prog=0, log=[], edit=None)
     broadcast("job", job)
@@ -222,6 +301,14 @@ def run_job(src, opts):
     p.wait()
     job.pop("pid", None)
     if p.returncode == 0 and job.get("edit"):
+        try:  # คลังคลิป: จดว่าคลิปนี้ทำงานไหนแล้ว + ชื่อจากบท
+            import library
+            t = ccfx.load_edit(job["edit"]).get("title")
+            for s in opts.get("clips") or [src]:
+                library.link(projects_root(), s, job["edit"], t)
+            broadcast("library", {})
+        except Exception:
+            pass
         open_project(job["edit"])
         job["state"] = "done"
     else:
@@ -409,7 +496,7 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def send_file(self, path, cache=False):
+    def send_file(self, path, cache=False, dl=None):
         if not path or not os.path.isfile(path):
             return self.send_error(404)
         size = os.path.getsize(path)
@@ -431,6 +518,9 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Cache-Control", "max-age=3600" if cache else "no-cache")
+        if dl:  # โหลดลงเครื่อง (มือถือ: Safari → แอปไฟล์)
+            from urllib.parse import quote
+            self.send_header("Content-Disposition", f"attachment; filename=\"clipcut.mp4\"; filename*=UTF-8''{quote(dl)}")
         self.end_headers()
         try:
             with open(path, "rb") as f:
@@ -477,6 +567,10 @@ class H(BaseHTTPRequestHandler):
                 subprocess.run([ccfx_ff(), "-y", "-v", "error", "-ss", "0.5", "-i", q, "-frames:v", "1", "-vf", "scale=-2:240", th],
                                capture_output=True, timeout=30)
             return self.send_file(th, cache=True)
+        if path == "/api/library":
+            import library
+            return self.send_json({"clips": library.listing(projects_root()), "scanning": bool(state.get("lib_scan")),
+                                   "naming": library._naming[0]})
         if path == "/api/clipinfo":
             import multiclip
             out = []
@@ -488,8 +582,10 @@ class H(BaseHTTPRequestHandler):
                                 "vertical": i["h"] >= i["w"]})
             return self.send_json(out)
         if path == "/api/video":  # ดู/โหลดคลิปที่เรนเดอร์บนมือถือ
-            q = self.own_video(parse_qs(url.query).get("path", [""])[0])
-            return self.send_file(q) if q else self.send_error(404)
+            qs = parse_qs(url.query)
+            q = self.own_video(qs.get("path", [""])[0])
+            dl = dl_name(q) if q and qs.get("dl") else None
+            return self.send_file(q, dl=dl) if q else self.send_error(404)
         if path == "/api/render/status":
             return self.send_json({"state": state.get("rstate", "idle"), "log": state.get("rlog", [])[-6:],
                                    "output": state.get("rout"), "running": bool(state["render"])})
@@ -504,7 +600,8 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/ping":
             return self.send_json({"ok": True, "app": "clipcut"})
         if path == "/api/home":
-            return self.send_json({"projects": [project_info(p) for p in recent_list()], "root": projects_root(),
+            ps = [project_info(p) for p in recent_list()]
+            return self.send_json({"projects": ps, "root": projects_root(),
                                    "staged": state["staged"], "job": job, "current": EDIT})
         if path == "/api/thumb":
             q = parse_qs(url.query).get("edit", [""])[0]
@@ -558,19 +655,28 @@ class H(BaseHTTPRequestHandler):
             name = os.path.basename(unquote(self.headers.get("X-Filename") or "clip.mp4"))
             if not name.lower().endswith(VIDEO_EXT):
                 return self.send_json({"ok": False, "error": "ไม่ใช่ไฟล์วิดีโอ"}, 400)
-            import re as _re
-            grp = _re.sub(r"[^A-Za-z0-9_-]", "", unquote(self.headers.get("X-Group") or ""))[:40]
-            d = os.path.join(projects_root(), grp or os.path.splitext(name)[0])
-            os.makedirs(d, exist_ok=True)
-            dst = os.path.join(d, name)
-            with open(dst, "wb") as f:
-                left = n
-                while left > 0:
-                    chunk = self.rfile.read(min(1 << 20, left))
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    left -= len(chunk)
+            import library  # ทุกไฟล์ที่อัป = เข้าคลังคลิป (ต้นฉบับแยกจากโฟลเดอร์งาน ตัดซ้ำได้)
+            dst = library.dest(projects_root(), name)
+            left = n
+            try:
+                with open(dst, "wb") as f:
+                    while left > 0:
+                        chunk = self.rfile.read(min(1 << 20, left))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        left -= len(chunk)
+            except OSError:
+                pass
+            if left > 0:  # มือถือออกจากเว็บ/จอล็อกกลางทาง = ไฟล์ไม่ครบ → ทิ้ง ไม่ให้เข้าคลัง
+                try:
+                    os.remove(dst)
+                except OSError:
+                    pass
+                return self.send_json({"ok": False, "error": "อัปไม่ครบ (การเชื่อมต่อหลุด) — อัปใหม่อีกที"}, 400)
+            library.add(projects_root(), dst)
+            library.name_later(projects_root(), dst)  # AI ดู 4 เฟรมตั้งชื่อ (เบื้องหลัง)
+            broadcast("library", {})
             return self.send_json({"ok": True, "path": dst})
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
@@ -661,8 +767,18 @@ class H(BaseHTTPRequestHandler):
                 ccfx.save_edit(EDIT, E)
                 threading.Thread(target=make_proxy, args=(EDIT,), daemon=True).start()
             return self.send_json({"ok": ok})
+        if path == "/api/library/rename":
+            import library
+            library.update(projects_root(), str(body.get("path")), title=str(body.get("title") or "").strip()[:60] or "คลิป", by="user")
+            return self.send_json({"ok": True})
+        if path == "/api/library/delete":
+            import library
+            return self.send_json({"ok": library.remove(projects_root(), str(body.get("path")))})
         if path == "/api/forget":
-            save_recent([p for p in recent_list() if p != body.get("edit")])
+            e = body.get("edit") or ""
+            save_recent([p for p in _jload(RECENT) if os.path.normcase(p) != os.path.normcase(e)])
+            with rlock:
+                _jsave(HIDDEN, list(dict.fromkeys(_jload(HIDDEN) + [e]))[-200:])
             return self.send_json({"ok": True})
         if path == "/api/pixel/new":  # วาดไอคอนใหม่จาก editor (AI วาดตาราง 16×16 → เข้าคลังกลาง)
             import re as _re
@@ -837,6 +953,7 @@ def main():
     elif t:
         state["staged"] = t
     threading.Thread(target=watcher, daemon=True).start()
+    threading.Thread(target=scan_library, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
     srv.daemon_threads = True
     print(f"🦞 clipcut → {page}", flush=True)

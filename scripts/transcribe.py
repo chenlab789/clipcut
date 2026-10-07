@@ -91,6 +91,8 @@ def el_phrases(words, gap=0.45, min_chars=8):
             cur = {"start": w["start"], "end": w["end"], "text": "", "speaker": sp, "words": []}
         cur["text"] += w["text"]
         cur["end"] = w["end"]
+        # เวลารายตัวอักษร — แยกจาก "words" (ซับใช้ words แบ่งวลี) · คำสั่งเสียง (voicecmd) ใช้หาเวลาคำสั่งในประโยค
+        cur.setdefault("wt", []).append({"start": round(w["start"], 3), "end": round(w["end"], 3), "word": w["text"]})
     flush()
     for s in segs:
         s["start"], s["end"] = round(s["start"], 3), round(s["end"], 3)

@@ -1,4 +1,4 @@
-# clipcut — v1.1
+# clipcut — v1.2
 
 Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 
@@ -16,13 +16,15 @@ Claude Code skill — AI auto-editor for Thai talking-head clips (ChenLab).
 - **Multi-clip**: drop several clips, arrange them yourself (story) or let it build a funny-scene compilation — AI trims each scene to the funny part and orders them (or shuffle).
 - **Demo-aware dead-air cut**: silent stretches where something is being shown (typing, unboxing) are detected from motion + AI vision and kept, sped up (×2–4 with a badge) or jump-cut instead of removed.
 - **Tray icon + start at login** (Windows), lean `claude -p` calls (~5k tokens overhead instead of ~30k) with per-job usage logged.
+- **Spoken edit requests**: just say it while filming ("เอารูปกุ้งขึ้นตรงนี้ให้หน่อย", "ซูมเข้านี่ให้หน่อย", "ใส่เสียงตูมตรงนี้") — the AI spots them from context, fetches a real photo (Openverse / Wikimedia, AI-picked) or zooms / adds the sound where you finish speaking. Zoom knows *what* to zoom ("ซูมเข้าขวด" — AI vision boxes the object and the camera centres it) and *when* ("ตอนกินน้ำซูมหน้ากู" fires at the actual moment, which is kept out of the dead-air cut); pointing is located with MediaPipe hand landmarks.
+- **Clip library**: upload raw clips now, cut later — pick one or several from the library and cut as many times as you like (originals untouched, transcript cached). Clips and projects are auto-titled by AI from frames / transcript so they're easy to find; downloads use the title as filename.
 - **Mobile**: optional access from your own phone via `tailscale serve` (tailnet only) behind a PIN, with a compact editor at `/m`.
 
 ## Install
 ```bash
 git clone https://github.com/chenlab789/clipcut ~/.claude/skills/clipcut
 ```
-Requires: Python 3, ffmpeg 8.x, `pip install requests pythainlp faster-whisper pillow numpy opencv-python pystray` (whisper optional), env `ELEVENLABS_API_KEY`.
+Requires: Python 3, ffmpeg 8.x, `pip install requests pythainlp faster-whisper pillow numpy opencv-python pystray mediapipe` (whisper optional), env `ELEVENLABS_API_KEY`.
 
 Usage: `/clipcut <video>` in Claude Code — see [SKILL.md](SKILL.md).
 
