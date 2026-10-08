@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-UA = {"User-Agent": "clipcut/1.1 (https://github.com/chenlab789/clipcut)"}
+UA = {"User-Agent": "clipcut/1.1 (https://github.com/lec79731-debug/clipcut)"}
 
 
 def _get(url, timeout=20):

@@ -215,7 +215,7 @@ def push_send(title, body, url="/"):
         for sub in subs:
             try:
                 webpush(sub, json.dumps({"title": title, "body": body, "url": url}, ensure_ascii=False),
-                        vapid_private_key=VAPID_PEM, vapid_claims={"sub": "https://github.com/chenlab789/clipcut"}, timeout=15)
+                        vapid_private_key=VAPID_PEM, vapid_claims={"sub": "https://github.com/lec79731-debug/clipcut"}, timeout=15)
             except WebPushException as ex:
                 if ex.response is not None and ex.response.status_code in (404, 410):  # ยกเลิก/ลบแอปไปแล้ว
                     dead.append(sub.get("endpoint"))
