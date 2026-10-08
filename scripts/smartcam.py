@@ -8,6 +8,8 @@
 2. ซูมกระแทกตามจังหวะ: หาจุดเสียงเน้น (voice_peaks) ส่งให้ AI วาง punch + ขยับ punch ให้ตรงจุดเน้น
 3. ซูมไปของที่ถือ/ชี้: AI ดูภาพทั้งคลิปทีละช่วง → เจอของ = fx "focus" (ซูมเข้าค้างแล้วออก) + กล้องเลื่อนไปหาของ
 4. ซูมช้ากันภาพนิ่ง: ช่วงยาวที่ไม่มีเอฟเฟกต์ → zoomin/zoomout เบาๆ สลับกัน (auto: "drift") จบตรงรอยตัด
+   ปิดเป็นค่าเริ่มต้นตั้งแต่ v1.5 (เฉินด่าซูมพร่ำเพรื่อ) — ใช้ช็อตจาก beats.py แทน · เปิดด้วย opts drift=1
+5. ตรวจก่อนส่ง (v1.5): ซูมแล้วหน้าคนพูดต้องอยู่ในกรอบ (ลดแรงซูม/ตัดทิ้ง) · ซูมของ = AI ดูภาพครอปจริงว่าเป็นของนั้นไหม
 
   python smartcam.py <edit.json> [--mode follow|fit] [--zoom 1.15]   คำนวณเส้นทางกล้องใหม่ (editor เรียกตอนกดสลับ)
 """
@@ -21,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ccfx  # noqa: E402
 
-ZOOMS = ("punch", "zoomin", "zoomout", "shake", "focus")
+ZOOMS = ("shot", "punch", "zoomin", "zoomout", "shake", "focus")
 STEP = 0.2  # = focus.FPS 5
 
 
@@ -316,22 +318,136 @@ def add_drift(E, cuts, density):
             n += k
 
 
+# ---------- 5. ตรวจก่อนส่ง ----------
+def object_units(E, beats):
+    """ช่วงที่ต้องให้ AI ดูภาพหาของ = beat "object" (บทบอกว่าโชว์ของ) · ไม่มี beat = ช่วงที่บทมีคำชี้ (อันนี้/ดูนี่)
+    เดิมดูทั้งคลิป → เจอของในมือก็ซูม ทั้งที่ไม่ได้พูดถึง = ซูมผิดของ"""
+    import beats as bt
+    if beats:
+        subs = [x for x in E["items"] if x["track"] == "sub"]
+        return [{"id": i, "t0": a, "t1": b, "thing": th,
+                 "text": " ".join(s["text"] for s in subs if s["start"] < b and s["end"] > a)}
+                for i, (a, b, th) in enumerate(bt.object_spans(beats))]
+    return [dict(u, id=i) for i, u in enumerate(x for x in scan_units(E) if bt.DEICTIC.search(x["text"].lower()))]
+
+
+def _frame(src, t, out):
+    subprocess.run([os.environ.get("FFMPEG", "ffmpeg"), "-v", "error", "-y", "-ss", f"{max(0, t):.3f}", "-i", src,
+                    "-frames:v", "1", out], check=True)
+    return out
+
+
+def verify_objects(E, src, workdir, units, ai):
+    """ซูมไปที่ของ → ครอปภาพจริงตรงกรอบ ให้ AI ตอบว่าเห็นของที่พูดถึงชัดไหม · ไม่ใช่ = ตัดทิ้ง"""
+    from PIL import Image, ImageDraw
+    objs = [x for x in E["items"] if x["track"] == "fx" and x.get("auto") == "object" and x.get("box_src")]
+    if not objs:
+        return 0
+    os.makedirs(workdir, exist_ok=True)
+    tiles, desc = [], []
+    for i, it in enumerate(objs):
+        m = (it["start"] + it["end"]) / 2
+        im = Image.open(_frame(src, m, os.path.join(workdir, f"_v{i}.png"))).convert("RGB")
+        x0, y0, x1, y1 = it["box_src"]
+        px, py = (x1 - x0) * 0.3, (y1 - y0) * 0.3
+        c = im.crop((int(max(0, x0 - px) * im.width), int(max(0, y0 - py) * im.height),
+                     int(min(1, x1 + px) * im.width), int(min(1, y1 + py) * im.height)))
+        c.thumbnail((360, 360))
+        tile = Image.new("RGB", (370, 400), (20, 20, 20))
+        tile.paste(c, (5, 35))
+        ImageDraw.Draw(tile).text((6, 8), f"#{i}", fill=(255, 255, 0))
+        tiles.append(tile)
+        u = next((u for u in units if u["t0"] - 0.3 <= m <= u["t1"] + 0.3), {})
+        desc.append(f"#{i} ของที่ควรเห็น: {u.get('thing') or '-'} · คนพูดว่า: {(u.get('text') or '')[:160]}")
+    cols = min(4, len(tiles))
+    sheet = Image.new("RGB", (370 * cols, 400 * ((len(tiles) + cols - 1) // cols)), (20, 20, 20))
+    for i, t in enumerate(tiles):
+        sheet.paste(t, (370 * (i % cols), 400 * (i // cols)))
+    sp = os.path.join(workdir, "_verify_objects.png")
+    sheet.save(sp)
+    prompt = f"""Read ภาพนี้: {sp}
+แต่ละช่อง (#i) = ภาพที่คนดูจะเห็นตอนกล้องซูมไปที่ของ
+{chr(10).join(desc)}
+
+ตอบว่าช่องไหน "ผ่าน" = เห็นของที่คนในคลิปกำลังโชว์/พูดถึงชัดเจน ส่วนใหญ่ของชิ้นอยู่ในภาพ
+- ชื่อของ ("ของที่ควรเห็น") มาจากเสียงพูด อาจเรียกไม่ตรงเป๊ะ (เช่นชื่อเล่น/ชื่อรุ่น) — ดูว่าเป็นของที่กำลังพูดถึงไหม ไม่ต้องตรงชื่อ
+- ไม่ผ่าน = เห็นแต่ผนัง/แขน/หน้าคน/ของคนละชิ้น/ภาพเบลอ หรือของหลุดกรอบเกินครึ่ง
+ตอบ JSON: {{"ok": [<i ที่ผ่าน>], "why": {{"<i>": "<สั้นๆ ทำไมไม่ผ่าน>"}}}}"""
+    try:
+        r = ai(prompt, read=True)
+        ok = {int(i) for i in r.get("ok", []) if str(i).lstrip("-").isdigit()}
+    except BaseException as ex:  # ai() พัง = SystemExit — ตรวจไม่ได้ก็เก็บไว้ ไม่ล้มทั้งงาน
+        print(f"  ! ตรวจซูมของไม่ได้ (เก็บไว้ทั้งหมด): {ex}", flush=True)
+        return 0
+    bad = {id(it) for i, it in enumerate(objs) if i not in ok}
+    for i, it in enumerate(objs):
+        if i not in ok:
+            print(f"  ตรวจ: ตัดซูมของที่ {it['start']:.1f} วิ ({(r.get('why') or {}).get(str(i), 'ไม่เห็นของชัด')})", flush=True)
+    E["items"] = [x for x in E["items"] if id(x) not in bad]
+    return len(bad)
+
+
+def frame_check(E):
+    """ซูมที่จุดหน้าคนพูด (shot/punch): หน้าต้องอยู่ในกรอบทั้งหน้า และไม่ล้นเกิน 60% ของสูงจอ
+    ไม่ผ่าน → ลดแรงซูมทีละขั้น · ลดถึง ~1.05 ยังไม่ผ่าน = ตัดทิ้ง"""
+    import focus
+    fixed, bad = set(), set()
+    zs = [x for x in E["items"] if x["track"] == "fx" and x["fx"] in ("shot", "punch") and x.get("fx_x") is not None]
+    for it in zs:
+        while True:
+            fx = [x for x in E["items"] if x["track"] == "fx" and x["fx"] != "flash" and id(x) not in bad]
+            ok = True
+            m = min(0.15, (it["end"] - it["start"]) / 4)  # ห่างขอบช่วง — ตรงรอยตัดกล้องยังเป็นตำแหน่งเก่า
+            mid = (it["start"] + it["end"]) / 2
+            fm = focus.speaker_face(E, mid)
+            for t in (it["start"] + m, mid, it["end"] - m):
+                f = focus.speaker_face(E, t)
+                # อีกคนแทรกพูดสั้นๆ (ท่อนสั้นกว่า 0.8 วิ ไม่ได้แยกช็อต) = ไม่ใช่หน้าที่ช็อตนี้เล็ง ไม่เอามาตัดสิน
+                if not f or (fm and abs(f[1] - fm[1]) > 0.25):
+                    continue
+                w = 1 / ccfx.zoom_at(fx, t)[0]
+                wx = min(max(it["fx_x"] - w / 2, 0), 1 - w)
+                wy = min(max(it["fx_y"] - w / 2, 0), 1 - w)
+                ax, ay = src_to_out(E, t, f[1] - f[3] / 2, f[2] - f[4] / 2)
+                bx, by = src_to_out(E, t, f[1] + f[3] / 2, f[2] + f[4] / 2)
+                # ส่วนของหน้าที่ล้นขอบจออยู่แล้วก่อนซูม ไม่ใช่ความผิดของซูม
+                ax, ay, bx, by = max(ax, 0), max(ay, 0), min(bx, 1), min(by, 1)
+                if ax < wx - 0.01 or bx > wx + w + 0.01 or ay < wy - 0.01 or by > wy + w + 0.01 or (by - ay) / w > 0.6:
+                    ok = False
+                    break
+            if ok or it["amount"] <= 1.06:
+                break
+            it["amount"] = round(max(1.05, 1 + (it["amount"] - 1) * 0.6), 3)
+            fixed.add(id(it))
+        if not ok:
+            bad.add(id(it))
+    E["items"] = [x for x in E["items"] if id(x) not in bad]
+    if fixed or bad:
+        print(f"  ตรวจกรอบหน้า {len(zs)} จุด: ลดแรงซูม {len(fixed - bad)} · ตัดทิ้ง {len(bad)} (หน้าหลุดกรอบ/ล้นจอ)", flush=True)
+
+
 # ---------- รวม ----------
-def run(E, proj, opts, cuts, new_id):
-    """autopilot เรียกหลังวางเอฟเฟกต์ของ AI แล้ว"""
+def run(E, proj, opts, cuts, new_id, beats=None, ai=None):
+    """autopilot เรียกหลังวางเอฟเฟกต์ของ AI + ช็อตจาก beats.py แล้ว"""
     import focus
     density = int(opts.get("density", 2))
     src = os.path.join(proj, E["video"])
     subs = [x for x in E["items"] if x["track"] == "sub"]
     print("  ตามหน้าคนในคลิป…", flush=True)
     E["faces"] = focus.track_faces(src, subs)
-    units, res, added = scan_units(E), {}, []
+    units, res, added = [], {}, []
     if opts.get("fx"):  # ปิดซูม/สั่น = เหลือแค่กล้องตามหน้า ไม่ต้องให้ AI ดูภาพ
-        print(f"  เจอ {len(E['faces']['tracks'])} คน · AI ดูภาพหาของที่ยก/ชี้…", flush=True)
-        res = focus.vision_focus(src, units, os.path.join(proj, "_focus"))
-        added = add_focus_items(E, units, res, density)
+        units = object_units(E, beats)
+        if units:  # ดูเฉพาะช่วงที่บทบอกว่าโชว์ของ (เดิมดูทั้งคลิป ทั้งแพงทั้งซูมผิดของ)
+            print(f"  เจอ {len(E['faces']['tracks'])} คน · AI ดูภาพหาของที่พูดถึง {len(units)} ช่วง…", flush=True)
+            res = focus.vision_focus(src, units, os.path.join(proj, "_focus"))
+            added = add_focus_items(E, units, res, density)
+        else:
+            print(f"  เจอ {len(E['faces']['tracks'])} คน · บทไม่ได้พูดถึงของที่โชว์ ไม่ซูมของ", flush=True)
     for it in added:
         E["items"].append(dict(it, id=new_id("fx")))
+    if added and ai:
+        verify_objects(E, src, os.path.join(proj, "_focus"), units, ai)
     # จุดซูมของเอฟเฟกต์ที่ AI วาง: ของที่ยก > หน้าคนพูด > กลางจอ
     for it in E["items"]:
         if it["track"] != "fx" or it["fx"] not in ZOOMS or it.get("fx_src"):
@@ -346,7 +462,7 @@ def run(E, proj, opts, cuts, new_id):
                 it["fx_src"] = [round(f[1], 4), round(f[2] + f[4] * 0.3, 4)]
     build_path(E, "follow" if opts.get("cam", 1) else "fit")
     size_focus(E)
-    if opts.get("fx") and opts.get("drift", 1):
+    if opts.get("fx") and opts.get("drift", 0):
         before = len(E["items"])
         add_drift(E, cuts, density)
         for it in E["items"][before:]:
@@ -355,7 +471,8 @@ def run(E, proj, opts, cuts, new_id):
             if f:
                 it["fx_src"] = [round(f[1], 4), round(f[2] + f[4] * 0.3, 4)]
     refocus(E)
-    nobj = len(added)
+    frame_check(E)
+    nobj = sum(1 for x in E["items"] if x.get("auto") == "object")
     ndr = sum(1 for x in E["items"] if x.get("auto") == "drift")
     print(f"  กล้อง {'ตามหน้า' if cam_on(E) else 'ภาพเต็ม'} · ซูมไปที่ของ {nobj} จุด · ซูมช้ากันนิ่ง {ndr} ช่วง", flush=True)
 

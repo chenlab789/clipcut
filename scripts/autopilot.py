@@ -240,7 +240,7 @@ def pass2(items, dur, opts, vertical, peaks=(), role=None):
 
 ตอบ JSON array ของ item (เรียงตามเวลา):
 - sfx  : {{"track":"sfx","start":s,"sfx":"<ชื่อ>","vol":0.5-1.0}}
-{EMOJI_SPEC if opts.get("emoji") else ""}- fx   : {{"track":"fx","start":s,"end":e,"fx":"punch|zoomin|zoomout|shake|flash","amount":ค่า}}  (punch 0.45 วิ amount 1.15-1.25 · zoomin/zoomout 2-4 วิ amount 1.08-1.15 · shake 0.5 วิ amount 12-20 · flash 0.35 วิ amount 0.5-0.7)
+{EMOJI_SPEC if opts.get("emoji") else ""}- fx   : {{"track":"fx","start":s,"end":e,"fx":"shake|flash","amount":ค่า}}  (shake 0.5 วิ amount 12-20 ตอนช็อค/ระเบิดเท่านั้น · flash 0.35 วิ amount 0.5-0.7 ตอนเปลี่ยนเรื่องใหญ่) — ซูมทุกแบบห้ามใส่ ระบบวางกล้องเองจาก beat ของบท
 - broll: {{"track":"broll","start":s,"end":e,"pixel":{{"sprite":"<ท่า>","brand":"<โดเมน>","icon":"<ไอคอน>"}}}}  ภาพประกอบพิกเซลอาร์ต ใส่ 1-2 อย่างใน pixel
     sprite = ท่าของตัวการ์ตูน "คนที่พูดประโยคนั้น" (ระบบเลือกตัวเฉิน/ตัวแฟนให้เองตามคนพูด · ประโยคของ "คนอื่น" ไม่ต้องใส่ sprite ใช้ icon/brand อย่างเดียว): {", ".join(poses)}
     icon ที่มีแล้ว: {", ".join(px["icons"])}
@@ -254,11 +254,9 @@ def pass2(items, dur, opts, vertical, peaks=(), role=None):
 
 กติกา:
 - วางเฉพาะจังหวะที่มีเหตุผล: พีค ปล่อยมุก ช็อค เปลี่ยนเรื่อง พูดชื่อของ — ห้ามโปรยทุกประโยค
-- punch วางตรงจุดเสียงเน้น (วินาทีที่คนพูดเน้นเสียง/ตะโกน/หัวเราะ): {", ".join(f"{p:.1f}" for p in peaks) or "-"} — เลือกเฉพาะจุดที่ประโยคมีความหมายพีคจริง ไม่ต้องใช้ทุกจุด
-- ไม่ต้องวางซูมช้ากันภาพนิ่งหรือซูมไปที่ของ ระบบดูภาพแล้วใส่ให้เอง
-- sfx ตรงจังหวะคำ (start = เวลาเริ่มประโยคนั้น) · ภาพโผล่ = whoosh นำหน้า 0.05 วิ · อีโมจิเด้ง = pop · riser จบตรงพีคแล้วตามด้วย boom+punch
+- sfx ตรงจังหวะคำ (start = เวลาเริ่มประโยคนั้น) · ภาพโผล่ = whoosh นำหน้า 0.05 วิ · อีโมจิเด้ง = pop · riser จบตรงพีคแล้วตามด้วย boom
 {EMOJI_RULE if opts.get("emoji") else ""}- ห้ามของซ้อนเวลาเดียวกันเกิน 3 อย่าง · ห้ามใช้ sfx ตัวเดิมติดกันเกิน 2 ครั้ง
-- ช่วงต้นคลิป 3 วิแรกควรมี hook (whoosh/punch/ภาพ/gif){gif_rule}{broll_rule}"""
+- ช่วงต้นคลิป 3 วิแรกควรมี hook (whoosh/ภาพ/gif){gif_rule}{broll_rule}"""
     out = ai(prompt)
     return out if isinstance(out, list) else out.get("items", [])
 
@@ -521,9 +519,9 @@ def main():
         step(4, "AI วางเอฟเฟกต์ตามบท")
         subs_for_ai = E["items"] or edit_init.build(seg_json, cut, style, keep, opts["aspect"], cc.probe_wh(src))["items"]
         import smartcam
-        peaks = smartcam.voice_peaks(cut) if opts.get("fx") else []
+        peaks = []  # v1.5: punch มาจาก beats.py (ความหมาย) ไม่ใช่ให้ AI โปรยตามเสียงดัง
         E["roles"] = roles(subs_for_ai, p1.get("chen"))
-        note("doing", text="AI อ่านบทแล้ววางเสียง ภาพ GIF ซูม ตามจังหวะ")
+        note("doing", text="AI อ่านบทแล้ววางเสียง ภาพ GIF ตามจังหวะ")
         plan = pass2(subs_for_ai, E["duration"], opts, opts["aspect"] == "9x16", peaks, E["roles"])
         json.dump(plan, open(os.path.join(outdir, "_ai_pass2.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     prog(85)
@@ -559,7 +557,7 @@ def main():
                 raise ValueError(it.get("sfx"))
             if tr == "emoji":  # อีโมจิผสม (ZWJ/สีผิว) วาดแยกเป็นหลายตัว → เหลือตัวแรก
                 it["emoji"] = re.split("[‍\U0001F3FB-\U0001F3FF]", str(it.get("emoji") or ""))[0] or "✨"
-            if tr == "fx" and it.get("fx") not in ccfx.FX_TYPES:
+            if tr == "fx" and it.get("fx") not in ("shake", "flash"):  # ซูมทุกแบบมาจาก beats.py เท่านั้น
                 raise ValueError(it.get("fx"))
             if tr == "broll":
                 spec = {k: v for k, v in (it.pop("pixel", None) or {}).items() if v and k in ("sprite", "icon", "brand")}
@@ -607,8 +605,19 @@ def main():
             while any(x.get("id") == f"z{n}" for x in E["items"]):
                 n += 1
             return f"z{n}"
+        bts = []
+        if opts.get("fx"):  # วางกล้องแบบ beat: AI อ่านบท → ขนาดภาพต่อช่วงความคิด + คำที่ต้องกระแทก
+            import beats
+            note("doing", text="AI อ่านบทแบ่ง beat เลือกขนาดภาพ")
+            subs_now = [x for x in E["items"] if x["track"] == "sub"] or subs_for_ai
+            bts = beats.plan(subs_now, E["duration"], cuts[:-1], opts, ai)
+            if bts:
+                beats.to_items(E, bts, opts, new_id)
+                json.dump(bts, open(os.path.join(outdir, "_ai_beats.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+                cnt_b = {k: sum(1 for b in bts if b["shot"] == k) for k in ("wide", "medium", "close", "object")}
+                print(f"  {len(bts)} beat · กว้าง {cnt_b['wide']} · กลาง {cnt_b['medium']} · ใกล้ {cnt_b['close']} · โชว์ของ {cnt_b['object']}", flush=True)
         try:
-            smartcam.run(E, outdir, opts, cuts[:-1], new_id)
+            smartcam.run(E, outdir, opts, cuts[:-1], new_id, beats=bts, ai=ai)
             snap = smartcam.voice_peaks(cut)
             smartcam.snap_punches(E, snap)
             smartcam.refocus(E)

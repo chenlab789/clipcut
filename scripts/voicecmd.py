@@ -291,7 +291,7 @@ def apply(E, cmds, outdir, src, to_out, sfx_ok, nid, ai, spots=None):
                             it["fx_src"] = [round(f[1], 4), round(f[2] + f[4] * 0.3, 4)]
                     it = edit_apply.fill(it, E)
                     # ซูมอื่นที่ทับช่วงนี้ออก (ซูมซ้อนกัน = จุดซูมตีกัน)
-                    E["items"] = [x for x in E["items"] if not (x["track"] == "fx" and x["fx"] in ("punch", "zoomin", "zoomout", "focus")
+                    E["items"] = [x for x in E["items"] if not (x["track"] == "fx" and x["fx"] in ("shot", "punch", "zoomin", "zoomout", "focus")
                                   and not x.get("cmd") and not x.get("gap") and x["start"] < it["end"] and x["end"] > it["start"])]
                     E["items"].append(it); done.append("ซูม" + ("ตรงที่ชี้" if pt else ""))
                 elif d["action"] == "image":

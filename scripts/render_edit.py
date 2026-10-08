@@ -45,7 +45,9 @@ def fx_exprs(fx, T, k):
         a = it.get("amount", ccfx.FX_DEFAULT[it["fx"]])
         d = max(e - s, 1e-3)
         on = f"between({T},{s:.3f},{e:.3f})"
-        if it["fx"] == "punch":
+        if it["fx"] == "shot":
+            z.append(f"{a - 1:.4f}*{on}")
+        elif it["fx"] == "punch":
             z.append(f"{a - 1:.4f}*{on}*min(1,min(({T}-{s:.3f})/0.08,({e:.3f}-{T})/0.15))")
         elif it["fx"] == "zoomin":
             z.append(f"{a - 1:.4f}*{on}*({T}-{s:.3f})/{d:.3f}")

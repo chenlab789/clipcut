@@ -1,4 +1,4 @@
-# clipcut — v1.4.1
+# clipcut — v1.5
 
 Claude Code skill ตัดต่อคลิปพูดภาษาไทยอัตโนมัติด้วย AI (ChenLab) ตัดช่วงเงียบ ใส่ซับไทยสไตล์ไวรัล เสียงเอฟเฟกต์ มีม ซูม แล้วเปิดโปรแกรม editor ให้แก้ต่อก่อน export
 
@@ -17,7 +17,7 @@ Claude Code skill: AI auto-editor for Thai talking-head clips (ChenLab). Cuts de
 - **ถอดเสียง**: ElevenLabs scribe_v2 (แยกคนพูด) ถ้าใช้ไม่ได้จะสลับไป faster-whisper
 - **แอป ClipCut**: ไอคอนบนเดสก์ท็อป ลากคลิปดิบไปวาง เลือก preset แล้ว `autopilot.py` (เรียก Claude Code แบบ `claude -p`) จะแก้คำถอดเสียง เลือกสไตล์ซับกับเพลง ตัดช่วงเงียบ วางเอฟเฟกต์ อีโมจิ ภาพ pixel art และซูม แล้วเปิด editor ให้ดู ติดตั้งไอคอนด้วย `python scripts/install_shortcut.py`
 - **Editor** (`scripts/editor/server.py`): โปรแกรม timeline ในเครื่อง (เปิดเป็นหน้าต่าง Chrome) พรีวิวสด มีเลเยอร์ซับ รูป อีโมจิ เสียงเอฟเฟกต์ และซูม/สั่น/แฟลช Claude วางเอฟเฟกต์ลง `edit.json` แล้วเราเห็นขึ้นมาทันที ลากแก้ได้ ทั้งสองฝั่งซิงก์กันสด `render_edit.py` เรนเดอร์ออกมาด้วย ffmpeg
-- **ซูมอัจฉริยะ**: กล้องตามคนที่กำลังพูด (จับหน้าด้วย YuNet + ดูปากขยับ) ซูมกระแทกตอนเน้นเสียง ซูมไปที่ของที่ยกขึ้นมาหรือชี้ (AI ดูภาพ) และค่อยๆ ซูมช่วงที่ภาพนิ่ง
+- **ซูมอัจฉริยะแบบ beat**: กล้องตามคนที่กำลังพูด (จับหน้าด้วย YuNet + ดูปากขยับ) AI อ่านบทแล้วแบ่งเป็นช่วงความคิด (beat) แต่ละช่วงเลือกขนาดภาพ กว้าง/กลาง/ใกล้ เปลี่ยนแบบตัดฉับตรงรอยตัด ซูมกระแทกเฉพาะคำที่ความหมายแรงจริง ซูมไปที่ของเฉพาะตอนที่พูดถึงของนั้น แล้วตรวจซ้ำก่อนส่ง (หน้าต้องอยู่ในกรอบ ของต้องเห็นชัด)
 - **GIF / มีม**: AI เลือก GIF จากคลังในเครื่องให้ตามประโยค มีทั้งแบบสติกเกอร์ทับ มีมเต็มจอ (คลิปหยุดรอ ที่เหลือเลื่อนตามให้เอง) และภาพหยุดพร้อมแคปชัน แต่ละอันมีเสียงมีมประกอบ
 - **ตัวละคร pixel art ตามคนพูด** (สไปรต์ของคนทำคลิปกับคนพูดร่วม)
 - **โหมด Motion Explainer**: ซีนกระดาษปะติดเรนเดอร์ด้วย Remotion พร้อมไอคอน pixel ที่ AI วาด
@@ -49,7 +49,7 @@ git clone https://github.com/lec79731-debug/clipcut ~/.claude/skills/clipcut
 - **Transcription**: ElevenLabs scribe_v2 (diarize) → fallback faster-whisper
 - **ClipCut app**: desktop icon → drop a raw clip → pick a preset → `autopilot.py` (Claude Code headless `claude -p`) fixes the transcript, picks subtitle style + music, cuts dead air, plans SFX / emoji / pixel-art b-roll / zooms → opens the editor for review. Install the icon with `python scripts/install_shortcut.py`.
 - **Editor** (`scripts/editor/server.py`): local timeline app (Chrome `--app` window) with live canvas preview — layers for subtitles, b-roll images, sticker emoji, SFX and zoom/shake/flash. Claude drafts effects into `edit.json`, you see them appear and tweak by drag & drop; both sides sync live. `render_edit.py` renders the same plan with ffmpeg.
-- **Smart zoom**: camera crops to follow whoever is speaking (YuNet face tracking + mouth motion), punch-ins on vocal emphasis, AI-vision zoom onto objects held up / pointed at, slow drift zooms on static stretches.
+- **Beat-based smart zoom**: camera crops to follow whoever is speaking (YuNet face tracking + mouth motion); AI reads the script, splits it into beats and gives each one a framing (wide / medium / close) that changes with a hard cut on edit points; punch-ins only on words that matter; object zooms only when the speaker is talking about the object; a verify pass drops zooms that crop the face or miss the object.
 - **GIF / meme**: local GIF library picked by AI per sentence — sticker overlays, full-screen meme cutaways (the clip pauses, everything after shifts automatically) and freeze-frame captions, each paired with synthesized meme SFX.
 - **Pixel-art characters follow the speaker** (creator vs. co-host sprites).
 - **Motion Explainer** mode: Remotion-rendered paper-collage scenes with AI-drawn pixel icons.

@@ -41,8 +41,8 @@ SUB_FONTS = {
 STYLE_DEFAULT_FILE = os.path.join(os.path.expanduser("~"), ".clipcut", "style_default.json")
 STYLE_KEYS = ("font", "size", "outline", "outline_w", "shadow", "shadow_color", "margin_v")  # ค่าที่ "ใช้เป็นค่าเริ่มต้น" จำไว้
 TRACKS = ["sub", "broll", "gif", "emoji", "sfx", "fx"]
-FX_TYPES = ["punch", "zoomin", "zoomout", "focus", "shake", "flash"]
-FX_DEFAULT = {"punch": 1.18, "zoomin": 1.25, "zoomout": 1.25, "focus": 1.6, "shake": 18, "flash": 0.7}
+FX_TYPES = ["shot", "punch", "zoomin", "zoomout", "focus", "shake", "flash"]
+FX_DEFAULT = {"shot": 1.15, "punch": 1.18, "zoomin": 1.25, "zoomout": 1.25, "focus": 1.6, "shake": 18, "flash": 0.7}
 EMOJI_PALETTE = ["😂", "🤣", "😭", "😱", "🤯", "😎", "🥹", "😡", "🤔", "🙄", "😏", "🫠", "💀", "🔥", "💯",
                  "✨", "⚡", "💥", "💸", "💰", "🚀", "🎯", "👀", "👍", "👎", "👏", "🙏", "💪", "🤝", "❤️",
                  "💔", "✅", "❌", "⚠️", "❓", "❗", "🎉", "🏆", "📈", "📉", "⏰", "🧠", "💡"]
@@ -169,7 +169,9 @@ def zoom_at(fx_items, t):
         a = it.get("amount", FX_DEFAULT[it["fx"]])
         d = max(e - s, 1e-3)
         p = (t - s) / d
-        if it["fx"] == "punch":
+        if it["fx"] == "shot":  # ช็อตกล้องของ beat: ขนาดภาพคงที่ทั้งช่วง เปลี่ยนแบบตัดฉับ (beats.py)
+            z += a - 1
+        elif it["fx"] == "punch":
             z += (a - 1) * min(1, (t - s) / 0.08, (e - t) / 0.15)
         elif it["fx"] == "zoomin":
             z += (a - 1) * p

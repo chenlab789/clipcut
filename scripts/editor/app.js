@@ -18,6 +18,7 @@ const TR = (id) => BASE_TRACKS.find((t) => t.id === id);
 const trackList = () => (isEx() ? [SCENE_TRACK, TR("sub"), TR("sfx")]
   : BASE_TRACKS.filter((t) => t.id !== "emoji" || E.items.some((x) => x.track === "emoji")));
 const FX_INFO = {
+  shot: ["ช็อตกล้อง", "ขยายภาพคงที่ทั้งช่วง ตัดฉับตอนเปลี่ยน beat — 1.15 = กลาง · 1.3 = ใกล้"],
   punch: ["ซูมกระแทก", "ซูมเข้าเร็วแล้วเด้งกลับ — ตอนเน้นคำ"],
   zoomin: ["ซูมเข้าช้า", "ค่อยๆ ดันเข้า — บิ้วอารมณ์"],
   zoomout: ["ซูมออกช้า", "เริ่มใกล้แล้วถอยออก"],
@@ -25,7 +26,7 @@ const FX_INFO = {
   shake: ["จอสั่น", "ตอนช็อค/ระเบิด"],
   flash: ["แฟลชขาว", "ตัดฉาก/พีค"],
 };
-const FX_RANGE = { punch: [1.02, 1.6, 0.01], zoomin: [1.02, 1.8, 0.01], zoomout: [1.02, 1.8, 0.01], focus: [1.05, 2.5, 0.01], shake: [2, 60, 1], flash: [0.1, 1, 0.05] };
+const FX_RANGE = { shot: [1.02, 1.6, 0.01], punch: [1.02, 1.6, 0.01], zoomin: [1.02, 1.8, 0.01], zoomout: [1.02, 1.8, 0.01], focus: [1.05, 2.5, 0.01], shake: [2, 60, 1], flash: [0.1, 1, 0.05] };
 // ฟอนต์ซับ — ค่าจริงมาจาก server (ccfx.SUB_FONTS) ตอนโหลด · ค่านี้แค่สำรอง
 let FONT_FILES = { Mali: "Mali-Bold.ttf", Kanit: "Kanit-Bold.ttf", Itim: "Itim-Regular.ttf" }, FONT_BOLD = { Mali: true, Kanit: true, Itim: false };
 // libass: Fontsize = winAscent+winDescent → [em/size, descent/size] จาก OS/2 ของแต่ละฟอนต์
@@ -273,7 +274,8 @@ function zoomAt(t) { // = ccfx.zoom_at
   for (const it of E.items) {
     if (it.track !== "fx" || t < it.start || t > it.end) continue;
     const a = it.amount ?? assets.fx_default[it.fx], s = it.start, e = it.end, d = Math.max(e - s, 1e-3), p = (t - s) / d;
-    if (it.fx === "punch") z += (a - 1) * Math.min(1, (t - s) / 0.08, (e - t) / 0.15);
+    if (it.fx === "shot") z += a - 1;
+    else if (it.fx === "punch") z += (a - 1) * Math.min(1, (t - s) / 0.08, (e - t) / 0.15);
     else if (it.fx === "zoomin") z += (a - 1) * p;
     else if (it.fx === "zoomout") z += (a - 1) * (1 - p);
     else if (it.fx === "focus") z += (a - 1) * Math.min(1, (t - s) / 0.35, (e - t) / 0.35);
@@ -871,7 +873,7 @@ function renderLib(tab) {
     const cf = $("#camFollow"); if (cf) cf.onchange = () => camReq({ mode: cf.checked ? "follow" : "fit" });
     const cz = body.querySelector('[data-k="camzoom"]'); if (cz) cz.onchange = () => camReq({ zoom: +cz.value });
     const cs = $("#camScan"); if (cs) cs.onclick = () => { cs.disabled = true; cs.textContent = "กำลังหาหน้า…"; camReq({ scan: true }); };
-    body.querySelectorAll("[data-fx]").forEach((b) => (b.onclick = () => { const f = b.dataset.fx; add("fx", { fx: f, amount: assets.fx_default[f], _len: { punch: 0.45, zoomin: 2.5, zoomout: 2.5, focus: 2.5, shake: 0.5, flash: 0.35 }[f] }); }));
+    body.querySelectorAll("[data-fx]").forEach((b) => (b.onclick = () => { const f = b.dataset.fx; add("fx", { fx: f, amount: assets.fx_default[f], _len: { shot: 4, punch: 0.45, zoomin: 2.5, zoomout: 2.5, focus: 2.5, shake: 0.5, flash: 0.35 }[f] }); }));
   } else if (tab === "gif") {
     const cats = Object.keys(GIFS.cats).filter((c) => Object.values(GIFS.lib).some((g) => g.cat === c));
     Object.values(GIFS.lib).forEach((g) => { if (!cats.includes(g.cat)) cats.push(g.cat); });

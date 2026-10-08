@@ -10,7 +10,7 @@ items: {id, track: sub|broll|emoji|sfx|fx, start, end, ...}
   broll : src (path เทียบโฟลเดอร์ edit.json), x, y (กลางภาพ 0-1), w (กว้าง/จอ 0-1)
   emoji : emoji, x, y, size (กว้าง/จอ), anim: pop|float|shake
   sfx   : sfx (ชื่อไฟล์ใน assets/sfx ไม่มี .wav), vol
-  fx    : fx: punch|zoomin|zoomout|shake|flash, amount
+  fx    : fx: shot|punch|zoomin|zoomout|focus|shake|flash, amount
 """
 import os
 import json

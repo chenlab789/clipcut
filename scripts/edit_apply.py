@@ -53,7 +53,7 @@ def fill(it, E):
             it.setdefault("rot", -3)
     elif tr == "fx":
         it.setdefault("amount", ccfx.FX_DEFAULT[it["fx"]])
-        it.setdefault("end", it["start"] + {"punch": 0.45, "zoomin": 2.5, "zoomout": 2.5, "focus": 2.5,
+        it.setdefault("end", it["start"] + {"shot": 4.0, "punch": 0.45, "zoomin": 2.5, "zoomout": 2.5, "focus": 2.5,
                                              "shake": 0.5, "flash": 0.35}[it["fx"]])
     it["start"] = round(max(0, it["start"]), 3)
     it["end"] = round(min(E["duration"], it["end"]), 3)
