@@ -586,5 +586,257 @@
    "...KOOKOOKOOK...",
    "....KK.KK.KK...."
   ]
+ },
+ "calendar": {
+  "desc": "ปฏิทินตั้งโต๊ะ",
+  "rows": [
+   "...KK......KK...",
+   ".KKAAKKKKKKAAKK.",
+   "KRZAARRRRRRAARRK",
+   "KRRKKRRRRRRKKRRK",
+   "KddddddddddddddK",
+   "KKKKKKKKKKKKKKKK",
+   "KWWWWWWWWWWWWWwK",
+   "KWAAWAAWAAWAAWwK",
+   "KWWWWWWWWWWWWWwK",
+   "KWAAWAAWRRWAAWwK",
+   "KWWWWWWWWWWWWWwK",
+   "KWAAWAAWAAWAAWwK",
+   "KWWWWWWWWWWWWWwK",
+   "KwwwwwwwwwwwwwwK",
+   "KKKKKKKKKKKKKKKK",
+   "................"
+  ]
+ },
+ "wallet": {
+  "desc": "กระเป๋าสตางค์มีธนบัตร",
+  "rows": [
+   "................",
+   "...KKKKKKKKKK...",
+   "...KGGGGGGGGK...",
+   "...KGgGGGGgGK...",
+   ".KKKKKKKKKKKKKK.",
+   ".KMZMMMMMMMMMMK.",
+   ".KMMMMMMMMMMMMK.",
+   ".KMMMMMMMMMMMMK.",
+   ".KMMMMMMMKKKKKKK",
+   ".KMMMMMMKyyyyyyK",
+   ".KMMMMMMKyYZyyyK",
+   ".KMMMMMMKyyyyyyK",
+   ".KMMMMMMMKKKKKKK",
+   ".KMMMMMMMMMMMMK.",
+   ".KMMMMMMMMMMMMK.",
+   ".KKKKKKKKKKKKKK."
+  ]
+ },
+ "oil_barrel": {
+  "desc": "ถังน้ำมันสีดำ",
+  "rows": [
+   "..KKKKKKKKKKKK..",
+   ".KAAAAAAAKKAAAK.",
+   ".KKKKKKKKKKKKKK.",
+   ".KaZaaaaaaaaaaK.",
+   ".KaZaaaaaaaaaaK.",
+   ".KAAAAAAAAAAAAK.",
+   ".KaZaaaaaaaaaaK.",
+   ".KaZaaaaaaaaaaK.",
+   ".KaaaaaaaaaaaaK.",
+   ".KaaaaaaaaaaaaK.",
+   ".KAAAAAAAAAAAAK.",
+   ".KaaaaaaaaaaaaK.",
+   ".KaaaaaaaaaaaaK.",
+   ".KaaaaaaaaaaaaK.",
+   ".KAAAAAAAAAAAAK.",
+   "..KKKKKKKKKKKK.."
+  ]
+ },
+ "money_stack": {
+  "desc": "ปึกธนบัตรซ้อนกัน",
+  "rows": [
+   "................",
+   ".KKKKKKKKKKKKKK.",
+   ".KGZGYYGGGGGGGK.",
+   ".KGGGYYGGKKGGGK.",
+   ".KGgGYYGKGGKGgK.",
+   ".KGGGYYGKGGKGGK.",
+   ".KGgGYYGGKKGGgK.",
+   ".KGGGYYGGGGGGGK.",
+   ".KKKKyyKKKKKKKK.",
+   ".KgggyygggggggK.",
+   ".KKKKyyKKKKKKKK.",
+   ".KGZGYYGGGGGGGK.",
+   ".KKKKyyKKKKKKKK.",
+   ".KgggyygggggggK.",
+   ".KKKKKKKKKKKKKK.",
+   "................"
+  ]
+ },
+ "balance_scale": {
+  "desc": "ตาชั่งสองแขน",
+  "rows": [
+   ".......KK.......",
+   "......KZyK......",
+   ".KKKKKKyyKKKKKK.",
+   "KYZYYYYYYYYYYYYK",
+   "KKKKKKKyyKKKKKKK",
+   "..K...KyyK...K..",
+   ".K.K..KyyK..K.K.",
+   "K...K.KyyK.K...K",
+   "KKKKKKKyyKKKKKKK",
+   "KYYYyKKyyKKYYYyK",
+   ".KyyK.KyyK.KyyK.",
+   "..KK..KyyK..KK..",
+   "......KyyK......",
+   "....KyyyyyyK....",
+   "...KyZyyyyyyK...",
+   "...KKKKKKKKKK..."
+  ]
+ },
+ "candlestick_chart": {
+  "desc": "กราฟแท่งเทียนเขียวแดง",
+  "rows": [
+   "............K...",
+   "..........KKKKK.",
+   ".......K..KZGgK.",
+   ".......K..KGGgK.",
+   ".....KKKKKKGGgK.",
+   "..K..KZRdKKGGgK.",
+   "..K..KRRdKKGGgK.",
+   "KKKKKKRRdKKKKKK.",
+   "KZGgKKRRdK..K...",
+   "KGGgKKRRdK..K...",
+   "KGGgKKKKKK..K...",
+   "KGGgK..K........",
+   "KGGgK..K........",
+   "KKKKK...........",
+   "..K.............",
+   "..K............."
+  ]
+ },
+ "snowball": {
+  "desc": "ก้อนหิมะกลิ้งใหญ่ขึ้นเรื่อยๆ",
+  "rows": [
+   ".......KKKKKK...",
+   ".....KKZZWWWWKK.",
+   "....KWZWWWWWWwwK",
+   "LL.KWWWWWWWWWwwK",
+   "...KWWWWWWWWWwwK",
+   "L..KWWWWWWWWWwwK",
+   "...KWWWWWWWWWwwK",
+   "LL.KWWWWWWWWwwAK",
+   "...KwWWWWWWWwwAK",
+   "...KwwWWWWWwwwAK",
+   "....KwwwwwwwwAK.",
+   ".....KAwwwwAAK..",
+   ".KKKKKKKKKKKKKK.",
+   ".KLwwwwwwwwwwLK.",
+   "..KKKKKKKKKKKK..",
+   "................"
+  ]
+ },
+ "airplane": {
+  "desc": "เครื่องบินโดยสาร",
+  "rows": [
+   ".......KK.......",
+   "......KZWK......",
+   "......KLLK......",
+   "......KWWK......",
+   "......KWWK......",
+   "....KKKWWKKK....",
+   "..KKWWWWWWWWKK..",
+   ".KWZWWWWWWWWWWK.",
+   "KKKKKKWWWWKKKKKK",
+   "...KOKKWWKKOK...",
+   "....K.KWWK.K....",
+   "......KWWK......",
+   "......KWWK......",
+   ".....KRWWRK.....",
+   "....KRRKKRRK....",
+   "....KKK..KKK...."
+  ]
+ },
+ "heatmap_grid": {
+  "desc": "ตารางสี่เหลี่ยมสีแดงเขียวแบบฮีทแมพ",
+  "rows": [
+   "KKKKKKKKKKKKKKKK",
+   "KZGKGGKYYKOOKRRK",
+   "KGGKGGKYYKOOKRRK",
+   "KKKKKKKKKKKKKKKK",
+   "KGGKYYKOOKRRKddK",
+   "KGGKYYKOOKRRKddK",
+   "KKKKKKKKKKKKKKKK",
+   "KYYKOOKZRKRRKddK",
+   "KYYKOOKRRKRRKddK",
+   "KKKKKKKKKKKKKKKK",
+   "KggKGGKYYKOOKRRK",
+   "KggKGGKYYKOOKRRK",
+   "KKKKKKKKKKKKKKKK",
+   "KggKGGKGGKYYKOOK",
+   "KggKGGKGGKYYKOOK",
+   "KKKKKKKKKKKKKKKK"
+  ]
+ },
+ "wave_chart": {
+  "desc": "เส้นกราฟคลื่นซิกแซกมีตัวเลข 1-5",
+  "rows": [
+   "KKKKKKKKKKKKKKKK",
+   "KZZPPPPPPPPPPPPK",
+   "KZPPPPPPPPPPPPYK",
+   "KPPPPPPPPPPPPPGK",
+   "KPPPPPPPPPYPPGPK",
+   "KPPPPPPPPPGGPGPK",
+   "KPPPPPPPPGPPYPPK",
+   "KPPPPPPPPGPPPPPK",
+   "KPPPPPPPGPPPPPPK",
+   "KPPPPPPPGPPPPPPK",
+   "KPPPYPPGPPPPPPPK",
+   "KPPGPGPGPPPPPPPK",
+   "KPGPPPYPPPPPPPPK",
+   "KGPPPPPPPPPPPPPK",
+   "KppppppppppppppK",
+   "KKKKKKKKKKKKKKKK"
+  ]
+ },
+ "trophy": {
+  "desc": "ถ้วยรางวัลสีทอง",
+  "rows": [
+   "..KKKKKKKKKKKK..",
+   "..KYZYYYYYYYyK..",
+   "KKKYZYYYYYYYyKKK",
+   "K.KYYYYYYYYYyK.K",
+   "K.KYYYYYYYYYyK.K",
+   ".KKKYYYYYYYyKKK.",
+   "...KYYYYYYYyK...",
+   "....KYYYYYyK....",
+   "......KyyK......",
+   "......KYyK......",
+   "......KYyK......",
+   ".....KYYYyK.....",
+   "...KKKKKKKKKK...",
+   "...KMMMMMMMMK...",
+   "...KMMYYYYMMK...",
+   "...KKKKKKKKKK..."
+  ]
+ },
+ "trend_line": {
+  "desc": "เส้นแนวโน้มลากผ่านกราฟ",
+  "rows": [
+   "KKKKKKKKKKKKKKKK",
+   "KZWWWWWWWWRRRRRK",
+   "KWWWWWWWWWWWRRRK",
+   "KWWWWWWWWWWRRWRK",
+   "KWWWWWWWWWRRWWRK",
+   "KWWWWWWWWRRWWWWK",
+   "KWWWWWWWRRWGGWWK",
+   "KWWWWWWRRWWGGWWK",
+   "KWWWWWRRGGWGGWWK",
+   "KWWWWRRWGGWGGWWK",
+   "KWWWRRGWGGWGGWWK",
+   "KWWRRGGWGGWGGWWK",
+   "KWRRWGGWGGWGGWWK",
+   "KWaaaaaaaaaaaaWK",
+   "KWWWWWWWWWWWWWWK",
+   "KKKKKKKKKKKKKKKK"
+  ]
  }
 }

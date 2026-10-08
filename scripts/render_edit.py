@@ -60,7 +60,7 @@ def fx_exprs(fx, T, k):
         elif it["fx"] == "flash":
             # clip ก่อน exp — ไม่งั้นช่วงก่อนแฟลชไกลๆ exp ล้น = inf×0 = NaN → eq ทำภาพมืดแดงทั้งช่วง
             fl.append(f"{a:.3f}*{on}*exp(-clip({T}-{s:.3f},0,{d:.3f})*4/{d:.3f})")
-    j = lambda xs: "+".join(xs) if xs else "0"  # noqa: E731
+    j = lambda xs: cc.sum_tree(xs) if xs else "0"  # noqa: E731 — ต้นไม้สมดุล: คลิปยาวมีเอฟเฟกต์เป็นร้อย
     return "1+" + j(z), j(sx), j(sy), j(fl)
 
 
@@ -165,11 +165,23 @@ def build(E, proj, aspect, preview, tmp):
     if any(x["fx"] != "flash" for x in fx):
         z, sx, sy, _ = fx_exprs([x for x in fx if x["fx"] != "flash"], "it", k)
         # จุดโฟกัสของแต่ละ item (fx_x/fx_y จาก focus.py — หน้าคนพูด/ของที่ยก) · ไม่มี = กลางจอ · zoompan clip ขอบให้เอง
+        # ช่วงซ้อนกัน = ตัวที่เริ่มก่อนชนะ → แตกเป็นช่วงไม่ทับกัน แล้วรวมแบบต้นไม้สมดุล
+        # (เดิม if ซ้อนกันทีละตัว — คลิป 24 นาทีมี 239 ชั้น ffmpeg parse ไม่ไหว: zoompan พัง Cannot allocate memory)
+        pieces, taken = [], []
+        for it in [x for x in fx if x["fx"] != "flash" and x.get("fx_x") is not None]:
+            segs = [(it["start"], it["end"])]
+            for a, b in taken:
+                segs = [q for s0, e0 in segs for q in ((s0, min(e0, a)), (max(s0, b), e0)) if q[1] - q[0] > 1e-3]
+            pieces += [(s0, e0, it["fx_x"], it["fx_y"]) for s0, e0 in segs]
+            taken.append((it["start"], it["end"]))
         fxe, fye = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
-        for it in reversed([x for x in fx if x["fx"] != "flash" and x.get("fx_x") is not None]):
-            on = f"between(it,{it['start']:.3f},{it['end']:.3f})"
-            fxe = f"if({on},{it['fx_x']:.4f}*iw-iw/zoom/2,{fxe})"
-            fye = f"if({on},{it['fx_y']:.4f}*ih-ih/zoom/2,{fye})"
+        if pieces:
+            on = lambda a, b: f"gte(it,{a:.3f})*lt(it,{b:.3f})"  # noqa: E731
+            ON = cc.sum_tree([on(a, b) for a, b, _, _ in pieces])
+            PX = cc.sum_tree([f"{on(a, b)}*{x:.4f}" for a, b, x, _ in pieces])
+            PY = cc.sum_tree([f"{on(a, b)}*{y:.4f}" for a, b, _, y in pieces])
+            fxe = f"if({ON},({PX})*iw-iw/zoom/2,{fxe})"
+            fye = f"if({ON},({PY})*ih-ih/zoom/2,{fye})"
         fc.append(f"[{cur}]zoompan=z='{z}':x='{fxe}+({sx})':y='{fye}+({sy})'"
                   f":d=1:s={w}x{h}:fps={FPS}[vz]")
         cur = "vz"

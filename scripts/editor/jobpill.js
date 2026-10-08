@@ -25,7 +25,9 @@
     return r < 25 ? "อีกแป๊บเดียว" : r < 60 ? "เหลือไม่ถึงนาที" : `เหลืออีก ~${Math.ceil(r / 60)} นาที`;
   };
   CC.mmss = (d) => `${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, "0")}`;
-  CC.jobTitle = (j) => (j.notes && j.notes.title && j.notes.title.text) || j.name || "คลิป";
+  // ชื่อไฟล์จากมือถือมักเป็นรหัสยาวๆ (0dd5d71be88a…) — ยังไม่มีชื่อจาก AI ก็เรียกว่า "คลิปใหม่" ไปก่อน
+  CC.jobTitle = (j) => (j.notes && j.notes.title && j.notes.title.text) ||
+    (j.name && !/^[0-9a-f-]{16,}$/i.test(j.name.replace(/\.[^.]+$/, "")) ? j.name : "คลิปใหม่");
   CC.openJob = async (j) => { if (j && j.edit) { await post("/api/open", { edit: j.edit }); location.href = CC.EDITOR; } };
 
   if (document.documentElement.classList.contains("embed")) return; // จอพรีวิวที่ฝังในหน้ามือถือ — หน้าแม่มีแถบแล้ว

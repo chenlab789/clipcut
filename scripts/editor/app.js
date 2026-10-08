@@ -73,9 +73,13 @@ function gifVid(id) { // <video> ต่อ GIF 1 ตัว (วนเล่น �
   }
   return gifVids.get(id);
 }
-function preloadGifs() { // GIF ทุกตัวในงานโหลดไว้ก่อน — โหลดตอนถึงคิว = ช่วงตัดเข้าเห็นภาพคลิปค้างแทน GIF
+function preloadGifs(t = vid.currentTime || 0) { // GIF ที่จะขึ้นภายใน ~25 วิ โหลดไว้ก่อน — โหลดตอนถึงคิว = ช่วงตัดเข้าเห็นภาพคลิปค้างแทน GIF
+  // ไม่โหลดทั้งงานทีเดียว: คลิปยาวมี GIF เป็นร้อย = <video> เป็นร้อย เบราว์เซอร์แย่งกันถอดรหัส คลิปหลักกระตุก/ค้าง
   if (!E) return;
-  for (const it of E.items) if (it.track === "gif" && it.gif && GIFS.lib[it.gif]) gifVid(it.gif);
+  const near = new Set();
+  for (const it of E.items) if (it.track === "gif" && it.gif && GIFS.lib[it.gif] && it.end >= t - 3 && it.start <= t + 25) near.add(it.gif);
+  for (const id of near) gifVid(id);
+  for (const [id, v] of gifVids) if (!near.has(id) && gifVids.size > 12) { v.pause(); v.removeAttribute("src"); v.load(); gifVids.delete(id); }
 }
 function pauseIdleGifs(t) { // GIF ที่ไม่ได้อยู่บนจอ หยุดเล่น ไม่แย่งเครื่องถอดรหัสวิดีโอกับคลิปหลัก
   const on = new Set(E.items.filter((x) => x.track === "gif" && t >= x.start && t <= x.end).map((x) => x.gif));
@@ -492,7 +496,10 @@ function tick() {
     if (t !== tick.lastT) { tick.lastT = t; tick.since = performance.now(); }
     else if (performance.now() - tick.since > 400) { vid.currentTime = t + 0.001; tick.since = performance.now(); console.warn("unstick", t); }
   }
-  if (E && !isEx()) pauseIdleGifs(t);
+  if (E && !isEx()) {
+    pauseIdleGifs(t);
+    if (Math.abs(t - (tick.gifT ?? -99)) > 2) { tick.gifT = t; preloadGifs(t); } // ทุก ~2 วิของคลิป / หลังกระโดด
+  }
   lastT = t;
   if (E) {
     drawFrame(); $("#tCur").textContent = fmt(t);

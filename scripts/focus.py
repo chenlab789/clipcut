@@ -31,20 +31,38 @@ def _frames(src, fps, long_side=960):
     sw, sh = int(p[0]), int(p[1])
     k = long_side / max(sw, sh)
     w, h = int(sw * k) // 2 * 2, int(sh * k) // 2 * 2
-    raw = subprocess.run([FF, "-v", "error", "-i", src, "-vf", f"fps={fps},scale={w}:{h}", "-pix_fmt", "bgr24",
-                          "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
-    n = len(raw) // (w * h * 3)
-    return np.frombuffer(raw[: n * w * h * 3], np.uint8).reshape(n, h, w, 3), w, h
+    # อ่านทีละเฟรมจาก pipe — คลิป 24 นาทีถ้าโหลดรวดเดียว = ~11GB → MemoryError
+    pr = subprocess.Popen([FF, "-v", "error", "-i", src, "-vf", f"fps={fps},scale={w}:{h}", "-pix_fmt", "bgr24",
+                           "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def gen():
+        size = w * h * 3
+        try:
+            while True:
+                buf = pr.stdout.read(size)
+                if len(buf) < size:
+                    break
+                yield np.frombuffer(buf, np.uint8).reshape(h, w, 3)
+        finally:
+            pr.stdout.close()
+            pr.wait()
+    return gen(), w, h
 
 
 def track_faces(src, subs=None):
     """→ {"fps", "tracks": [...]} — หน้าที่โผล่น้อยกว่า 15% ของคลิปทิ้ง (คนเดินผ่าน/จับผิด)"""
     import cv2
-    frames, w, h = _frames(src, FPS)
+    # คลิปยาวเกิน 10 นาที: ภาพเล็กลง + ห่างขึ้น (5→3 fps) — หาหน้า 24 นาทีจาก ~5.5 → ~2 นาที
+    dur = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                         "-of", "csv=p=0", src], text=True).strip() or 0)
+    fps, side = (3, 640) if dur > 600 else (FPS, 960)
+    frames, w, h = _frames(src, fps, side)
     det = cv2.FaceDetectorYN.create(MODEL, "", (w, h), 0.75, 0.3, 50)
     tracks = []  # {pts, mouth: {t: crop}, last}
+    n_frames = 0
     for i, fr in enumerate(frames):
-        t = round(i / FPS, 2)
+        n_frames += 1
+        t = round(i / fps, 2)
         _, faces = det.detect(fr)
         gray = None
         for f in (faces if faces is not None else []):
@@ -84,7 +102,7 @@ def track_faces(src, subs=None):
         else:
             merged.append(tr)
     tracks = merged
-    keep = [tr for tr in tracks if len(tr["pts"]) >= max(5, 0.15 * len(frames))]
+    keep = [tr for tr in tracks if len(tr["pts"]) >= max(5, 0.15 * n_frames)]
     out = []
     for i, tr in enumerate(sorted(keep, key=lambda tr: np.median([p[1] for p in tr["pts"]]))):  # ซ้าย→ขวา
         a = np.array(tr["pts"])
@@ -94,14 +112,14 @@ def track_faces(src, subs=None):
         energy = {}
         ts = sorted(tr["mouth"])
         for t0, t1 in zip(ts, ts[1:]):
-            if t1 - t0 <= 0.25:
+            if t1 - t0 <= 1.3 / fps:  # เฟรมติดกัน
                 energy[t1] = float(np.abs(tr["mouth"][t1] - tr["mouth"][t0]).mean())
         out.append({"id": i, "speaker": None, "pts": [[round(float(v), 4) for v in p] for p in a],
                     "_energy": energy})
     map_speakers(out, subs or [])
     for tr in out:
         tr.pop("_energy", None)
-    return {"fps": FPS, "tracks": out}
+    return {"fps": fps, "tracks": out}
 
 
 def map_speakers(tracks, subs):
@@ -149,7 +167,8 @@ def vision_focus(src, units, workdir, model="opus"):
     from PIL import Image, ImageDraw
     os.makedirs(workdir, exist_ok=True)
     result = {}
-    for b in range(0, len(units), 6):
+
+    def one(b):
         batch = units[b: b + 6]
         rows, desc = [], []
         for u in batch:
@@ -185,8 +204,13 @@ def vision_focus(src, units, workdir, model="opus"):
             r = autopilot.ai(prompt, read=True, model=model)
             for u in r.get("units", []):
                 result[u.get("id")] = clean_focus(u.get("focus"))
-        except Exception as e:
+        except BaseException as e:  # ai() พังแบบ SystemExit — แผ่นเดียวพังไม่ให้ล้มทั้งงาน
             print(f"  ! AI ดูภาพแผ่น {b // 6} ไม่ได้: {e}", flush=True)
+
+    # ยิงพร้อมกัน 4 แผ่น (เดิมทีละแผ่น ~23 วิ/แผ่น → คลิป 24 นาที ~20 นาที)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(4) as ex:
+        list(ex.map(one, range(0, len(units), 6)))
     return result
 
 

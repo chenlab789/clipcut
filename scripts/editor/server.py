@@ -297,21 +297,33 @@ def proxy_path(edit):
     return os.path.join(os.path.dirname(edit), os.path.splitext(E["video"])[0] + ".proxy.mp4")
 
 
+PROXY_LOCK = threading.Lock()
+
+
 def make_proxy(edit):
     """ไฟล์พรีวิว 540 px + keyframe ทุก 0.5 วิ — ไฟล์เต็ม 1080×1920 seek ช้า พรีวิวใน editor ภาพค้าง
-    (เรนเดอร์จริงยังใช้ไฟล์เต็ม)"""
+    (เรนเดอร์จริงยังใช้ไฟล์เต็ม)
+    ทีละไฟล์: เปิดงานจากคอม+มือถือพร้อมกัน = 2 thread เขียน .tmp ไฟล์เดียวกัน → proxy พัง (ภาพค้าง/กระตุกทั้งคลิป)"""
+    with PROXY_LOCK:
+        _make_proxy(edit)
+
+
+def _make_proxy(edit):
     E = ccfx.load_edit(edit)
     src = os.path.join(os.path.dirname(edit), E["video"])
     dst = proxy_path(edit)
     if os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
         return
-    tmp = dst + ".tmp.mp4"
+    tmp = dst + f".{os.getpid()}.{threading.get_ident()}.tmp.mp4"
     r = subprocess.run([ccfx_ff(), "-y", "-v", "error", "-i", src, "-vf", "scale='if(gt(iw,ih),960,540)':-2",
                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-g", "15", "-keyint_min", "15",
                         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", tmp],
                        capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode == 0:
         os.replace(tmp, dst)
+    elif os.path.exists(tmp):
+        os.remove(tmp)
+    if r.returncode == 0:
         if EDIT and os.path.normcase(EDIT) == os.path.normcase(edit):
             broadcast("proxy", {"proxy": os.path.basename(dst)})
 
